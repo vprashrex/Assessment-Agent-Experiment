@@ -10,7 +10,7 @@ How to band:
   not allowed: commit.
 - Use the FULL scale. A genuinely original, clearly explained idea belongs at the top; a generic,
   unexplained one belongs at the bottom. Do not drift to the middle to be safe.
-- Judge school students in their context: reward observation and reasoning, not grammar or polish.
+- Judge the submitters in their own context as setup.md describes it: reward substance, not grammar or polish.
   Effort alone does not raise a band; new design or working clarity does.
 - Evidence: one sentence naming the specific detail that fixed the band.
 

@@ -16,7 +16,7 @@ import anthropic
 from dotenv import load_dotenv
 from pydantic import BaseModel, ValidationError
 
-load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 load_dotenv()
 
 # JSON-schema keywords the structured-output endpoint does not accept; pydantic re-checks them.
@@ -99,7 +99,8 @@ def call(
 
     last: Exception | None = None
     for _ in range(retries + 1):
-        resp = client().beta.messages.create(**kwargs)
+        with client().beta.messages.stream(**kwargs) as stream:  # streaming: long outputs would otherwise be refused
+            resp = stream.get_final_message()
         meta = {"role": role, "model": model, "served_by": resp.model, "stop": resp.stop_reason,
                 "in": resp.usage.input_tokens, "out": resp.usage.output_tokens}
         if resp.stop_reason == "refusal":
