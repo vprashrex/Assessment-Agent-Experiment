@@ -1,6 +1,5 @@
-"""The LangGraph: parse → (ask_operator) → review_setup → baseline → [generate → sample → score → review →
-stats → gate → decide]* → bakeoff → reflect → handoff. Keep/revert and the rounds ceiling are code
-(loop/gate); continue/success/fail is the Judge (judge/decide). `continue` re-enters at generate."""
+"""parse → design → baseline → [generate → score → measure → gate → assess]* → reflect → handoff.
+assess routes: revise → generate; assure → score (best again); stop after a passed assurance."""
 
 from __future__ import annotations
 
@@ -11,32 +10,32 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 
 from .core.state import RunState
+from .generator.assess import assess
+from .generator.design import design
 from .generator.generate import generate
 from .generator.reflect import reflect
-from .judge.decide import decide
-from .judge.review import review
-from .loop.finish import bakeoff, handoff
+from .loop.finish import handoff
 from .loop.gate import gate
 from .loop.lifecycle import ask_operator, baseline, parse, review_setup
-from .loop.steps import sample, score, stats
-
-LOOP = [generate, sample, score, review, stats, gate, decide]
+from .loop.steps import measure, score
 
 
 def build(checkpoint: Path):
     g = StateGraph(RunState)
-    for fn in [parse, ask_operator, review_setup, baseline, *LOOP, bakeoff, reflect, handoff]:
+    for fn in [parse, ask_operator, review_setup, design, baseline, generate, score, measure, gate, assess, reflect, handoff]:
         g.add_node(fn.__name__, fn)
 
     g.add_edge(START, "parse")
     g.add_conditional_edges("parse", lambda s: "ask_operator" if s.get("needs_input") else "generate" if s.get("resume_loop") else "review_setup")
     g.add_edge("ask_operator", "parse")
-    g.add_edge("review_setup", "baseline")
+    g.add_edge("review_setup", "design")
+    g.add_edge("design", "baseline")
     g.add_conditional_edges("baseline", lambda s: END if s.get("stop") else "generate")
-    for a, b in zip(LOOP, LOOP[1:]):
-        g.add_edge(a.__name__, b.__name__)
-    g.add_conditional_edges("decide", lambda s: "bakeoff" if s.get("stop") else "generate")
-    g.add_edge("bakeoff", "reflect")
+    g.add_edge("generate", "score")
+    g.add_edge("score", "measure")
+    g.add_edge("measure", "gate")
+    g.add_edge("gate", "assess")
+    g.add_conditional_edges("assess", lambda s: "reflect" if s.get("stop") else "score" if s.get("mode") == "assure" else "generate")
     g.add_edge("reflect", "handoff")
     g.add_edge("handoff", END)
 

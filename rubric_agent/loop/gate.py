@@ -1,86 +1,60 @@
-"""Keep/revert gate — plain code, never skippable.
-Two axes: consistency (mean ICC, bootstrap SE) and quality (Judge disagree %, binomial SE). KEPT on the train
-sample iff at least one axis improves beyond its noise band and neither regresses beyond it; then confirmed on
-the held-out split. Records the trend row and carry-over. Circuit breaker lives here too."""
+"""Keep/revert and assurance checks — plain code. Collapse guard and circuit breaker live here."""
 
 from __future__ import annotations
 
-import math
 from typing import Any
 
-from ..core.config import CARRY_CAP, CARRY_RETIRE, K_RUNS
+from ..core.config import COLLAPSE_DROP, FAIL_RATE_MAX, FAIL_STREAK, K, K_ASSURE
 from ..core.runio import Run
 from ..core.state import RunState
-from ..judge.review import review_rows
-from ..scorer.score import score_rows
-from .measure import fmt, icc_bootstrap_se, trend_row
-from .steps import compute_stats
-
-
-def heldout(run: Run, version: str) -> dict[str, Any]:
-    """Score + review `version` on the held-out split once; cached under scores/<v>_test.json, judge/test_<v>.json."""
-    test = run.json("split.json", {})["test"]
-    if not (run.dir / f"scores/{version}_test.json").exists():
-        run.write(f"scores/{version}_test.json", score_rows(run, run.rubric(version), test, K_RUNS))
-    if not (run.dir / f"judge/test_{version}.json").exists():
-        run.write(f"judge/test_{version}.json", review_rows(run, run.json(f"scores/{version}_test.json", {}), test))
-    return compute_stats(run, run.json(f"scores/{version}_test.json", {}), run.json(f"judge/test_{version}.json", {}), test)
+from .measure import fmt, trend_row
+from .plot import plot_all
+from .steps import best_stats
 
 
 def gate(state: RunState) -> dict[str, Any]:
     run = Run(state["run_dir"])
     rnd, cand, best = state["round"], state["candidate"], state["best"]
-    spec = run.setup.metrics
-    st = run.json(f"judge/round_{rnd}_stats.json", {})
-    c, b = st[cand], st[best]
-    se_icc = icc_bootstrap_se(c["rows"], run.metrics, spec[0].min, spec[0].max)
-    d_icc = c["metrics"]["_icc_mean"] - b["metrics"]["_icc_mean"]
-    p = (b["disagree"].get("_overall") or 0) / 100
-    n_cells = max(1, len(state["sample"]) * len(run.metrics))
-    se_dis = 100 * math.sqrt(max(p * (1 - p), 0.01) / n_cells)
-    d_dis = (c["disagree"].get("_overall") or 0) - (b["disagree"].get("_overall") or 0)
-    # two axes: consistency (ICC) and quality (Judge disagree %). KEPT if either improves beyond its noise band
-    # and neither regresses beyond it; then confirmed on rows the loop never tunes on.
-    better_icc, better_dis = d_icc > se_icc, d_dis < -se_dis
-    no_worse = d_icc >= -se_icc and d_dis <= se_dis
-    kept_train = no_worse and (better_icc or better_dis)
-    axis = "consistency+quality" if better_icc and better_dis else "consistency" if better_icc else "quality" if better_dis else ""
-    note = ""
-    if kept_train:
-        hc, hb = heldout(run, cand), heldout(run, best)
-        se_h = icc_bootstrap_se(hc["rows"], run.metrics, spec[0].min, spec[0].max)
-        kept = hc["metrics"]["_icc_mean"] >= hb["metrics"]["_icc_mean"] - se_h and \
-            (hc["disagree"].get("_overall") or 0) <= (hb["disagree"].get("_overall") or 0) + se_dis
-        note = (f" | held-out ICC {hc['metrics']['_icc_mean']:.2f} vs {hb['metrics']['_icc_mean']:.2f}, dis {hc['disagree'].get('_overall')} vs "
-                f"{hb['disagree'].get('_overall')} | axis {axis}")
-    else:
-        kept = False
+    c = run.json(f"stats/round_{rnd}.json", {})[cand]
+    b = best_stats(run, state)
+    cm, bm, se = c["metrics"], b["metrics"], c["se"]
+    d_within, d_stable, d_icc = cm["_within"] - bm["_within"], cm["_stable_pct"] - bm["_stable_pct"], cm["_icc"] - bm["_icc"]
+    d_severe = cm["_severe"] - bm["_severe"]
+    no_worse = d_icc >= -se["_icc"] and d_within <= se["_within"] and d_stable >= -se["_stable_pct"] and d_severe <= se["_severe"]
+    collapse = cm["_icc"] < state["baseline_icc"] - max(3 * se["_icc"], COLLAPSE_DROP)
     versions = run.json("versions.json", {})
-    versions[cand].update(icc=c["metrics"]["_icc_mean"], disagree=c["disagree"].get("_overall"), kept=kept, d_icc=round(d_icc, 3), se_icc=round(se_icc, 3))
+
+    if state["mode"] == "assure":
+        reproduced = all(abs(d) <= 2 * se[k] for d, k in ((d_within, "_within"), (d_stable, "_stable_pct"), (d_severe, "_severe"), (d_icc, "_icc")))
+        passed = reproduced and not collapse
+        line = (f"r{rnd:02d} | ASSURE {best} | n={len(state['sample'])} k={K_ASSURE} | {fmt(cm, run.metrics)} | within {cm['_within']:.2f} vs "
+                f"{bm['_within']:.2f} (SE {se['_within']:.3f}) | stable {cm['_stable_pct']:.0f}% vs {bm['_stable_pct']:.0f}% | ICC {cm['_icc']:.2f} vs "
+                f"{bm['_icc']:.2f} | {'PASSED' if passed else 'FAILED'}")
+        run.append("ledger.md", line)
+        trend_row(run, rnd, best, cm, c["rows"], run.metrics, kept=passed, assure=True)
+        plot_all(run.dir)
+        if passed:
+            run.append("ledger.md", "STOP: success — consistency held on a repeat run of the best rubric")
+        return {"best_round": rnd if passed else state["best_round"], "ledger": state["ledger"] + [line],
+                "stop": passed, "stop_reason": "success: assured consistent" if passed else "", "mode": "revise"}
+
+    better = d_within < -se["_within"] or d_stable > se["_stable_pct"]
+    kept = better and no_worse and not collapse
+    versions[cand].update(icc=cm["_icc"], within=cm["_within"], stable_pct=cm["_stable_pct"], kept=kept,
+                          d_within=round(d_within, 3), d_stable=round(d_stable, 1), d_icc=round(d_icc, 3))
     run.write("versions.json", versions)
-    trend_row(run, rnd, cand, c["metrics"], c["disagree"], c["rows"], run.metrics, kept=kept, d_icc=round(d_icc, 3), se=round(se_icc, 3))
-    line = (f"r{rnd:02d} | {cand} ← {best} \"{versions[cand]['summary']}\" | n={len(state['sample'])} k={K_RUNS} | {fmt(c['metrics'], c['disagree'], run.metrics)}"
-            f" | ICC {c['metrics']['_icc_mean']:.2f} vs {b['metrics']['_icc_mean']:.2f} (Δ {d_icc:+.3f}, SE {se_icc:.3f}) | dis {c['disagree'].get('_overall')} vs "
-            f"{b['disagree'].get('_overall')} (Δ {d_dis:+.1f}, SE {se_dis:.1f}){note} | {'KEPT' if kept else 'NOT KEPT'}")
+    trend_row(run, rnd, cand, cm, c["rows"], run.metrics, kept=kept)
+    plot_all(run.dir)
+    line = (f"r{rnd:02d} | {cand} ← {best} \"{versions[cand]['summary']}\" | n={len(state['sample'])} k={K} | {fmt(cm, run.metrics)} | "
+            f"within {cm['_within']:.2f} vs {bm['_within']:.2f} (Δ {d_within:+.3f}, SE {se['_within']:.3f}) | stable {cm['_stable_pct']:.0f}% vs "
+            f"{bm['_stable_pct']:.0f}% (Δ {d_stable:+.1f}, SE {se['_stable_pct']:.1f}) | flips {cm['_severe']} vs {bm['_severe']} | ICC {cm['_icc']:.2f} vs {bm['_icc']:.2f}"
+            + (" | COLLAPSE" if collapse else "") + f" | {'KEPT' if kept else 'NOT KEPT'}")
     run.append("ledger.md", line)
-
-    counts, carry = dict(state.get("carry_count", {})), []
-    flagged = {r["cid"] for r in run.json(f"judge/round_{rnd}_{cand}.json", {}).get("rows", []) if not r["agree"]}
-    flagged |= {cid for m in run.metrics for cid in c["metrics"][m]["unstable"]}
-    for cid in sorted(flagged):
-        counts[cid] = counts.get(cid, 0) + 1
-        if counts[cid] > CARRY_RETIRE:
-            run.append("unresolved.md", f"{cid}: flagged {counts[cid]} rounds running (last {cand})")
-        else:
-            carry.append(cid)
-    carry = carry[:CARRY_CAP]
-
     fail = 0 if kept else state.get("consecutive_fail", 0) + 1
-    err = c["metrics"]["_fail_rate"]
-    reason = (f"circuit breaker: {err:.0%} of scorer runs failed" if err > 0.3
-              else "circuit breaker: max rounds" if rnd >= state["max_rounds"] else None)
+    reason = (f"fail — scorer unreliable: {cm['_fail_rate']:.0%} of runs failed" if cm["_fail_rate"] > FAIL_RATE_MAX
+              else f"fail — no improvement in {FAIL_STREAK} consecutive revisions" if fail >= FAIL_STREAK
+              else "ceiling — max rounds reached, best so far handed off" if rnd >= state["max_rounds"] else None)
     if reason:
         run.append("ledger.md", f"STOP: {reason}")
     return {"best": cand if kept else best, "best_round": rnd if kept else state["best_round"], "consecutive_fail": fail,
-            "carry": carry, "carry_count": {x: counts[x] for x in carry}, "ledger": state["ledger"] + [line],
-            "stop": reason is not None, "stop_reason": reason or ""}
+            "ledger": state["ledger"] + [line], "stop": reason is not None, "stop_reason": reason or ""}

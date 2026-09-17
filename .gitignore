@@ -3,3 +3,7 @@ __pycache__/
 .venv/
 .env
 runs/
+cache/*
+memory/*
+agents/*
+.claude/*

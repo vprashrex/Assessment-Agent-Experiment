@@ -1,5 +1,4 @@
-"""Plain-code measurement over k-run scores: per-row mean/std, per-metric within/between std and ICC,
-score distribution, Judge disagreement, rank concordance, trend table."""
+"""Consistency maths over k-run scores: per-row std, stable % (all k within one adjacent value), ICC, bootstrap SE, trend."""
 
 from __future__ import annotations
 
@@ -8,7 +7,7 @@ import random
 from collections import Counter
 from typing import Any
 
-from ..core.runio import Run
+from ..core.config import SEVERE_RANGE, STABLE_RANGE
 
 
 def mean(xs: list[float]) -> float | None:
@@ -16,88 +15,85 @@ def mean(xs: list[float]) -> float | None:
 
 
 def std(xs: list[float]) -> float | None:
+    if not xs:
+        return None
     if len(xs) < 2:
-        return 0.0 if xs else None
+        return 0.0
     m = sum(xs) / len(xs)
     return math.sqrt(sum((x - m) ** 2 for x in xs) / (len(xs) - 1))
 
 
 def row_stats(scores: dict[str, dict[str, Any]], metrics: list[str]) -> dict[str, dict[str, Any]]:
-    """Per row: per metric {values, mean, std, mode, n_fail}; failed runs excluded from values, counted."""
     out: dict[str, dict[str, Any]] = {}
     for cid, rec in scores.items():
-        runs = rec["runs"]
-        ok = [r["scores"] for r in runs if r.get("scores")]
-        out[cid] = {"n_fail": len(runs) - len(ok), "metrics": {}}
+        ok = [r["scores"] for r in rec["runs"] if r.get("scores")]
+        out[cid] = {"n_fail": len(rec["runs"]) - len(ok), "n": len(rec["runs"]), "metrics": {}}
         for m in metrics:
             vals = [s[m] for s in ok]
-            out[cid]["metrics"][m] = {"values": vals, "mean": mean(vals), "std": std(vals),
-                                      "mode": Counter(vals).most_common(1)[0][0] if vals else None}
+            sd = std(vals)
+            out[cid]["metrics"][m] = {"values": vals, "mean": mean(vals), "std": sd, "range": (max(vals) - min(vals)) if vals else None,
+                                      "stable": bool(vals) and max(vals) - min(vals) <= STABLE_RANGE and len(vals) == len(rec["runs"])}
     return out
 
 
 def metric_stats(rows: dict[str, dict[str, Any]], metrics: list[str], lo: int, hi: int) -> dict[str, Any]:
-    """Per metric: within-row std (consistency), between-row std (discrimination), ICC, unstable rows, distribution."""
     out: dict[str, Any] = {}
     for m in metrics:
         per = [(cid, r["metrics"][m]) for cid, r in rows.items() if r["metrics"][m]["mean"] is not None]
         within = mean([x["std"] for _, x in per]) or 0.0
         between = std([x["mean"] for _, x in per]) or 0.0
-        icc = between**2 / (between**2 + within**2) if (between or within) else 0.0
         dist = Counter(v for _, x in per for v in x["values"])
         n = sum(dist.values()) or 1
         top = dist.most_common(1)[0] if dist else (None, 0)
-        out[m] = {"within_std": round(within, 3), "between_std": round(between, 3), "icc": round(icc, 3),
-                  "unstable": sorted((cid for cid, x in per if x["std"] and x["std"] > 1.0), key=lambda c: -rows[c]["metrics"][m]["std"]),
+        var = mean([(x["std"] or 0) ** 2 for _, x in per]) or 0.0
+        out[m] = {"within_std": round(within, 3), "within_var": round(var, 3), "between_std": round(between, 3),
+                  "icc": round(between**2 / (between**2 + within**2), 3) if (between or within) else 0.0,
+                  "stable_pct": round(100 * sum(1 for _, x in per if x["stable"]) / max(1, len(rows)), 1),
+                  "severe": sum(1 for _, x in per if (x["range"] or 0) >= SEVERE_RANGE),
+                  "severe_rows": [cid for cid, x in per if (x["range"] or 0) >= SEVERE_RANGE],
+                  "unstable": sorted((cid for cid, x in per if not x["stable"]), key=lambda c: -(rows[c]["metrics"][m]["std"] or 9)),
                   "counts": {str(v): dist.get(v, 0) for v in range(lo, hi + 1)},
                   "unused": [v for v in range(lo, hi + 1) if dist.get(v, 0) == 0],
                   "pileup": f"{top[0]} ({100 * top[1] // n}%)" if top[1] / n > 0.4 else None}
-    out["_icc_mean"] = round(mean([out[m]["icc"] for m in metrics]) or 0.0, 3)
-    out["_within_mean"] = round(mean([out[m]["within_std"] for m in metrics]) or 0.0, 3)
-    out["_fail_rate"] = round(sum(r["n_fail"] for r in rows.values()) / max(1, sum(len(r["metrics"]) and 1 for r in rows.values())), 3)
+    out["_icc"] = round(mean([out[m]["icc"] for m in metrics]) or 0.0, 3)
+    out["_within"] = round(mean([out[m]["within_std"] for m in metrics]) or 0.0, 3)
+    out["_var"] = round(mean([out[m]["within_var"] for m in metrics]) or 0.0, 3)
+    out["_stable_pct"] = round(mean([out[m]["stable_pct"] for m in metrics]) or 0.0, 1)
+    out["_severe"] = sum(out[m]["severe"] for m in metrics)
+    out["_fail_rate"] = round(sum(r["n_fail"] for r in rows.values()) / max(1, sum(r["n"] for r in rows.values())), 3)
     return out
 
 
-def icc_bootstrap_se(rows: dict[str, dict[str, Any]], metrics: list[str], lo: int, hi: int, b: int = 200) -> float:
-    """SE of the mean ICC under resampling rows: the noise band a candidate must beat."""
+def bootstrap_se(rows: dict[str, dict[str, Any]], metrics: list[str], lo: int, hi: int, b: int = 150) -> dict[str, float]:
     cids = list(rows)
     if len(cids) < 3:
-        return float("inf")
+        return {"_icc": float("inf"), "_within": float("inf"), "_stable_pct": float("inf"), "_severe": float("inf")}
     rnd = random.Random(0)
-    vals = []
+    samples = {"_icc": [], "_within": [], "_stable_pct": [], "_severe": []}
     for _ in range(b):
-        pick = {c: rows[c] for c in rnd.choices(cids, k=len(cids))}
-        vals.append(metric_stats(pick, metrics, lo, hi)["_icc_mean"])
-    return std(vals) or 0.0
+        pick = rnd.choices(cids, k=len(cids))
+        ms = metric_stats({f"{c}#{i}": rows[c] for i, c in enumerate(pick)}, metrics, lo, hi)
+        for key in samples:
+            samples[key].append(ms[key])
+    return {k: round(std(v) or 0.0, 4) for k, v in samples.items()}
 
 
-def disagreement(review_rows: list[dict[str, Any]], metrics: list[str]) -> dict[str, float]:
-    """Judge disagree % per metric and overall from review verdicts."""
-    out = {}
-    for m in metrics:
-        v = [r for r in review_rows if r["metric"] == m]
-        out[m] = round(100 * sum(1 for r in v if not r["agree"]) / len(v), 1) if v else float("nan")
-    out["_overall"] = round(100 * sum(1 for r in review_rows if not r["agree"]) / len(review_rows), 1) if review_rows else float("nan")
+def row_deltas(cur: dict[str, dict[str, Any]], prev: dict[str, dict[str, Any]], metrics: list[str]) -> dict[str, dict[str, float]]:
+    out: dict[str, dict[str, float]] = {}
+    for cid, r in cur.items():
+        if cid not in prev:
+            continue
+        d = {m: round((r["metrics"][m]["std"] or 0) - (prev[cid]["metrics"][m]["std"] or 0), 2) for m in metrics
+             if r["metrics"][m]["std"] is not None and prev[cid]["metrics"][m]["std"] is not None}
+        if d:
+            out[cid] = d
     return out
 
 
-def concordance(order: list[str], rows: dict[str, dict[str, Any]], m: str) -> float | None:
-    """Kendall tau between the Judge's best->worst order and the scorer's mean scores (1 = same order)."""
-    ids = [c for c in order if c in rows and rows[c]["metrics"][m]["mean"] is not None]
-    if len(ids) < 3:
-        return None
-    s = 0
-    for i in range(len(ids)):
-        for j in range(i + 1, len(ids)):
-            d = rows[ids[i]]["metrics"][m]["mean"] - rows[ids[j]]["metrics"][m]["mean"]
-            s += (d > 0) - (d < 0)
-    return round(s / (len(ids) * (len(ids) - 1) / 2), 2)
-
-
-def trend_row(run: Run, rnd: int, version: str, ms: dict[str, Any], dis: dict[str, float], rows: dict[str, dict[str, Any]],
-              metrics: list[str], **extra: Any) -> dict[str, Any]:
-    row = {"round": rnd, "version": version, "icc": ms["_icc_mean"], "within": ms["_within_mean"], "disagree": dis.get("_overall"),
-           "per_metric": {m: {"icc": ms[m]["icc"], "within": ms[m]["within_std"], "disagree": dis.get(m),
+def trend_row(run, rnd: int, version: str, ms: dict[str, Any], rows: dict[str, dict[str, Any]], metrics: list[str], **extra: Any) -> dict[str, Any]:
+    row = {"round": rnd, "version": version, "icc": ms["_icc"], "within": ms["_within"], "var": ms["_var"], "stable_pct": ms["_stable_pct"],
+           "severe": ms["_severe"],
+           "per_metric": {m: {"icc": ms[m]["icc"], "within": ms[m]["within_std"], "var": ms[m]["within_var"], "stable_pct": ms[m]["stable_pct"], "severe": ms[m]["severe"],
                               "mean": round(mean([r["metrics"][m]["mean"] for r in rows.values() if r["metrics"][m]["mean"] is not None]) or 0, 2)}
                           for m in metrics}, **extra}
     rows_ = run.json("trend.json", [])
@@ -107,13 +103,13 @@ def trend_row(run: Run, rnd: int, version: str, ms: dict[str, Any], dis: dict[st
 
 
 def trend_md(rows: list[dict[str, Any]], metrics: list[str]) -> str:
-    head = "| round | version | kept | ICC | within-std | disagree% | " + " | ".join(f"{m[:5]} icc/within/dis%" for m in metrics) + " |"
-    out = [head, "|" + "---|" * (6 + len(metrics))]
+    head = "| round | version | kept | stable% | avg std | severe flips | ICC | " + " | ".join(f"{m[:6]} stable%/std/flips/icc" for m in metrics) + " |"
+    out = [head, "|" + "---|" * (7 + len(metrics))]
     for r in rows:
-        cells = [f"{r['per_metric'][m]['icc']}/{r['per_metric'][m]['within']}/{r['per_metric'][m]['disagree']}" for m in metrics]
-        out.append(f"| {r['round']} | {r['version']} | {r.get('kept', '')} | {r['icc']} | {r['within']} | {r['disagree']} | " + " | ".join(cells) + " |")
+        cells = [f"{r['per_metric'][m]['stable_pct']}/{r['per_metric'][m]['within']}/{r['per_metric'][m].get('severe', '')}/{r['per_metric'][m]['icc']}" for m in metrics]
+        out.append(f"| {r['round']} | {r['version']} | {r.get('kept', '')} | {r['stable_pct']} | {r['within']} | {r.get('severe', '')} | {r['icc']} | " + " | ".join(cells) + " |")
     return "\n".join(out)
 
 
-def fmt(ms: dict[str, Any], dis: dict[str, float], metrics: list[str]) -> str:
-    return " ".join(f"{m[:4]} icc {ms[m]['icc']:.2f} sd {ms[m]['within_std']:.2f} dis {dis.get(m, float('nan')):.0f}" for m in metrics)
+def fmt(ms: dict[str, Any], metrics: list[str]) -> str:
+    return " ".join(f"{m[:4]} st {ms[m]['stable_pct']:.0f}% sd {ms[m]['within_std']:.2f} fl {ms[m]['severe']} icc {ms[m]['icc']:.2f}" for m in metrics)
