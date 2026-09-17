@@ -1,0 +1,13 @@
+mkdir -p runs/run-1
+
+.venv/bin/python -m rubric_agent.cli run \
+  --sheet test_ideas.xlsx \
+  --context context.md \
+  --run runs/run-1 \
+  --prompt test_prompt.md \
+  --schema score_schema.md \
+  --k 4 \
+  --rounds 30 \
+  > runs/run-1/run.log 2>&1 &
+
+tail -f runs/run-1/run.log

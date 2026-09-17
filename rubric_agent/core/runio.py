@@ -1,5 +1,3 @@
-"""Run-directory I/O. Everything heavy lives in files under runs/<name>/; graph state stays small."""
-
 from __future__ import annotations
 
 import json
@@ -32,6 +30,11 @@ class Run:
     def metrics(self) -> list[str]:
         return [m.name for m in self.setup.metrics]
 
+    @property
+    def scale(self) -> tuple[int, int]:
+        m = self.setup.metrics[0]
+        return m.min, m.max
+
     def text(self, name: str) -> str:
         p = self.dir / name
         return p.read_text() if p.exists() else ""
@@ -52,13 +55,8 @@ class Run:
     def rubric(self, version: str) -> str:
         return self.text(f"rubric/{version}.md")
 
-    def pool(self) -> set[str]:
-        return set(self.json("example_pool.json", []))
-
-    def draw(self, k: int, exclude: set[str], seed: str) -> list[str]:
-        """Seeded random sample of row ids with content, excluding the given ids."""
-        return self.draw_from(list(self.rows), k, exclude, seed)
-
-    def draw_from(self, cids: list[str], k: int, exclude: set[str], seed: str) -> list[str]:
-        pool = [c for c in cids if c not in exclude and self.rows[c]["fields"]]
-        return random.Random(seed).sample(pool, k=min(k, len(pool)))
+    def sample(self, n: int | None) -> list[str]:
+        cids = [c for c in self.rows if self.rows[c]["fields"]]
+        if not n or n >= len(cids):
+            return cids
+        return random.Random("sample").sample(cids, k=n)
