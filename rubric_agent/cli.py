@@ -1,10 +1,11 @@
-"""strip | run | continue | resume | answer | trend | gt
+"""strip | run | continue | resume | answer | trend | contrib | gt
 
   python -m rubric_agent.cli run --sheet data.xlsx --context context.md --run runs/main [--prompt v0.md] [--schema schema.md]
       [--scorer openai:gpt-4o-mini] [--scorer-params '{"temperature":1}'] [--k 4] [--n 60] [--rounds 30]
   python -m rubric_agent.cli continue --run runs/main --comments comments.md --rounds 5
   python -m rubric_agent.cli resume --run runs/main
   python -m rubric_agent.cli trend --run runs/main
+  python -m rubric_agent.cli contrib --run runs/main     # per-metric contribution to the overall std move
 """
 
 from __future__ import annotations
@@ -62,7 +63,7 @@ def main(argv: list[str] | None = None) -> None:
     c.add_argument("--comments", required=True)
     c.add_argument("--rounds", type=int, default=5)
 
-    for name in ("resume", "answer", "trend"):
+    for name in ("resume", "answer", "trend", "contrib"):
         p = sub.add_parser(name)
         p.add_argument("--run", required=True)
         if name == "answer":
@@ -89,6 +90,16 @@ def main(argv: list[str] | None = None) -> None:
     if a.cmd == "trend":
         from .loop.plot import plot_all
         print("->", *plot_all(run_dir))
+        return
+    if a.cmd == "contrib":
+        from .core.runio import Run
+        from .loop.contrib import report
+        run = Run(str(run_dir))
+        stats = sorted((run_dir / "stats").glob("round_*.json"))
+        n = len(next(iter(run.json(f"stats/{stats[-1].name}", {}).values()))["rows"]) if stats else 0
+        md = report(run.json("trend.json", []), run.json("versions.json", {}), run.metrics, n)
+        run.write("contributions.md", md)
+        print(md + f"\n-> {run_dir / 'contributions.md'}")
         return
     if a.cmd == "gt":
         from . import gt_check

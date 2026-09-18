@@ -64,17 +64,41 @@ def metric_stats(rows: dict[str, dict[str, Any]], metrics: list[str], lo: int, h
     return out
 
 
+AGG_KEYS = ("_icc", "_within", "_stable_pct", "_severe")
+# per-metric bootstrap keys are "<metric>.<stat>", so they can never collide with the
+# "_"-prefixed aggregates and callers can ask for either by name
+PER_METRIC_KEYS = (("within", "within_std"), ("stable_pct", "stable_pct"), ("icc", "icc"), ("severe", "severe"))
+
+
+def se_key(metric: str, stat: str = "within") -> str:
+    return f"{metric}.{stat}"
+
+
 def bootstrap_se(rows: dict[str, dict[str, Any]], metrics: list[str], lo: int, hi: int, b: int = 150) -> dict[str, float]:
+    """Resample submissions with replacement; return the SE of every aggregate AND of each metric.
+
+    One resample feeds every key, so the per-metric SEs cost nothing beyond the bookkeeping and
+    stay consistent with the aggregate ones (same b draws, same rows).
+
+    What this does NOT price: the scorer. Rows are resampled, but each row keeps the k scores it
+    already got, so this is row-sampling error only. Re-scoring the same rubric moves a per-metric
+    within-std by considerably more than this SE (see contrib.noise_floor), which is why the gate
+    takes max(bootstrap SE, retest floor) rather than trusting this number alone.
+    """
     cids = list(rows)
+    keys = list(AGG_KEYS) + [se_key(m, s) for m in metrics for s, _ in PER_METRIC_KEYS]
     if len(cids) < 3:
-        return {"_icc": float("inf"), "_within": float("inf"), "_stable_pct": float("inf"), "_severe": float("inf")}
+        return dict.fromkeys(keys, float("inf"))
     rnd = random.Random(0)
-    samples = {"_icc": [], "_within": [], "_stable_pct": [], "_severe": []}
+    samples: dict[str, list[float]] = {k: [] for k in keys}
     for _ in range(b):
         pick = rnd.choices(cids, k=len(cids))
         ms = metric_stats({f"{c}#{i}": rows[c] for i, c in enumerate(pick)}, metrics, lo, hi)
-        for key in samples:
+        for key in AGG_KEYS:
             samples[key].append(ms[key])
+        for m in metrics:
+            for s, src in PER_METRIC_KEYS:
+                samples[se_key(m, s)].append(ms[m][src])
     return {k: round(std(v) or 0.0, 4) for k, v in samples.items()}
 
 

@@ -171,6 +171,9 @@ Once a run has finished, hand it human comments and let it continue from the bes
 # redraw the trend charts from an existing run
 .venv/bin/python -m rubric_agent.cli trend --run runs/my-run
 
+# split every round's move in overall std across the metrics that caused it
+.venv/bin/python -m rubric_agent.cli contrib --run runs/my-run
+
 # compare a finished run against human ground truth (operator-only, never seen by any agent)
 .venv/bin/python -m rubric_agent.cli gt --run runs/my-run --gt ground-truth.xlsx
 ```
@@ -218,10 +221,11 @@ Everything lands in the `--run` directory:
 | `HOW_TO_WRITE_AN_UNAMBIGUOUS_RUBRIC.md` | Generalised lessons from the run. |
 | `versions.json` | Per version: parent, kept/rejected, and the deltas that decided it. |
 | `trend.json` | Per round: overall and per-metric numbers. Machine-readable. |
+| `contributions.md` | Per round: which metric moved the overall std, and by how much. See below. |
 | `setup.md` / `setup.json` | What the parser concluded, and the frozen schema and metrics. |
 | `submissions.json` | The parsed rows, with attachment descriptions inlined. |
 | `scores/`, `stats/` | Raw k scores and computed statistics per round. |
-| `trend_*.png`, `rows.png` | Trend charts and a per-submission consistency heatmap. |
+| `trend_*.png`, `rows.png` | Trend charts, a per-submission consistency heatmap, and `trend_contrib.png` (per-metric contribution to each round's move in overall std). |
 | `checkpoints.sqlite` | Graph state, used by `resume`. |
 
 The four numbers that matter, all per metric and overall:
@@ -231,6 +235,33 @@ The four numbers that matter, all per metric and overall:
 - **severe flips** — submissions whose k scores span 2 points or more
 - **ICC** — guards against the degenerate win where every submission gets the same score; a rubric that
   collapses the scale looks perfectly "consistent" but has stopped discriminating
+
+### Which metric moved the number
+
+Overall within-std is the **unweighted mean** of the per-metric within-std. So
+
+    Δ_overall = (1/M) · Σ_m Δ_metric
+
+holds *exactly* — no interaction term, no residual, and every metric carries weight `1/M` no matter how
+noisy it is. `contributions.md` (written every round, and rebuildable with `cli contrib`) is that identity
+term by term: each metric's `Δ`, its contribution in the units the gate reads, and its share of the move.
+It is also fed to the generator, so a revision can be aimed at the metric that actually cost something.
+
+Four ways the shares mislead, all of them flagged in the table:
+
+- **A share is not evidence.** The yardstick for a per-metric Δ is a re-score of the *same* rubric, which
+  is what the assurance round is. The noise floor is read off those rounds. Before one exists the fallback
+  is an analytic SE, `sqrt((var − within²)/n)`, which understates the real floor by roughly an order of
+  magnitude — the rows are held fixed between rounds, so scorer stochasticity dominates, not row sampling.
+- **Shares are signed and need not land in [0, 100].** When metrics move in opposite directions the
+  denominator is a near-cancellation, so one metric can read 227% while another reads −55%. The `churn`
+  column (`|Δ|` over `Σ|Δ|`) stays bounded and shows the offsetting movement the signed share hides.
+- **Mean-of-std is not variance-additive.** `var` is. The `by variance` column is the same split computed
+  on the additive aggregate; when the two orderings disagree the table says so, and the std ranking is the
+  weaker claim. On both recorded runs they disagree in most rounds.
+- **A falling std can just be a shrinking scale.** Push scores down the 1–10 range and per-row std falls
+  mechanically. `within/between = sqrt((1−ICC)/ICC)` is invariant to rescaling, so a metric whose raw std
+  fell while that ratio did not has not become more consistent. The gate never looks at the score mean.
 
 ---
 
@@ -242,7 +273,22 @@ parse → design → baseline → [ generate → score → measure → gate → 
 
 **The gate is code, not a model.** A revision is kept only when within-std drops by more than its
 bootstrap standard error, or stable % rises by more than its SE, *and* nothing else got materially worse,
-*and* ICC did not collapse. Marginal wins are rejected on purpose.
+*and* ICC did not collapse, *and* it did not **trade one metric against another**. Marginal wins are
+rejected on purpose.
+
+The trade guard exists because the aggregate is a *mean*: one large improvement can pay for several
+regressions and still read as progress. `bootstrap_se` now returns a per-metric SE alongside the
+aggregates (`"<metric>.within"`, `.stable_pct`, `.icc`, `.severe` — same resamples, so they are mutually
+consistent), and each metric's tolerance is `max(2 × bootstrap SE, re-score noise floor)`. A regression
+past that tolerance does **not** by itself block — the best revision on both recorded runs regressed one
+metric while fixing three. What blocks is a regression whose win does not survive **leave-one-out**:
+delete the single metric contributing most of the gain, and if the remaining mean Δ is no longer negative,
+the win lived entirely in one metric and the revision is rejected with `TRADED` in the ledger.
+
+Backtested on the two recorded runs it changes **1 of 11** decisions: it newly rejects `test-maverick`'s
+`v1` (whose overall −0.018 is inside that run's own ±0.022 noise floor), keeps every genuine win, and
+catches `test-agent-1`'s `v2` — Sustainability −0.177 against three metrics regressing — on its own
+merits rather than relying on stable % happening to move the right way.
 
 **The generator decides when to stop.** When it judges the numbers have plateaued it asks for an
 *assurance* round: the best rubric is re-scored unchanged. If all four aggregates reproduce within 2 SE,
