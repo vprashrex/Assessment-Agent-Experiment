@@ -86,6 +86,86 @@ def plot_rows(run: Run) -> Path:
     return out
 
 
+def plot_contrib(run: Run) -> Path:
+    """trend_contrib.png — who moved the overall std, round by round.
+
+    Contributions are signed and sum exactly to the overall move, so the honest form is a
+    diverging stacked bar: each metric's Δ/M stacked upward if it made things worse and downward
+    if it made things better, with the net marked on top. Reading the net off the stack is the
+    point — a short net bar sitting between tall opposing stacks is a revision that traded one
+    metric against another rather than improving anything.
+    """
+    from .contrib import noise_floor, parent  # local: contrib imports nothing from plot
+
+    metrics = run.metrics
+    trend, versions = run.json("trend.json", []), run.json("versions.json", {})
+    rows = [t for t in trend if t.get("per_metric")]
+    pairs = [(t, parent(versions, trend, t)) for t in rows]
+    pairs = [(t, b) for t, b in pairs if b is not None]
+    if not pairs:
+        fig, ax = plt.subplots(figsize=(7, 3))
+        ax.text(0.5, 0.5, "no comparable rounds yet", ha="center", va="center", color=MUTED)
+        ax.axis("off")
+        out = run.dir / "trend_contrib.png"
+        fig.savefig(out, dpi=150)
+        plt.close(fig)
+        return out
+    floor = noise_floor(trend, metrics).get("floor") or 0.0
+    M = len(metrics)
+    x = list(range(len(pairs)))
+    fig, ax = plt.subplots(figsize=(max(7.0, 1.5 * len(pairs) + 3.2), 4.6))
+    # The floor band is labelled in the legend, not annotated in the plot area: with bars on both
+    # sides of zero there is no corner in the axes that is reliably free of a bar or a value label.
+    band = None
+    if floor:
+        band = ax.axhspan(-floor, floor, color=GRID, alpha=0.55, zorder=0,
+                          label=f"±{floor:.3f} re-score noise floor")
+    up = [0.0] * len(pairs)
+    dn = [0.0] * len(pairs)
+    for j, m in enumerate(metrics):
+        col = PALETTE[j % len(PALETTE)]
+        vals = [(t["per_metric"][m]["within"] - b["per_metric"][m]["within"]) / M for t, b in pairs]
+        bot = [up[i] if v >= 0 else dn[i] for i, v in enumerate(vals)]
+        # 2px surface gap between stacked segments, so adjacent hues never touch
+        ax.bar(x, vals, bottom=bot, width=0.62, color=col, label=m, zorder=2, linewidth=1.2, edgecolor="white")
+        for i, v in enumerate(vals):
+            if v >= 0:
+                up[i] += v
+            else:
+                dn[i] += v
+    net = [t["within"] - b["within"] for t, b in pairs]
+    ax.plot(x, net, marker="D", markersize=7, linestyle="none", color=INK, zorder=4,
+            markeredgecolor="white", markeredgewidth=1.4, label="net (sum of contributions)")
+    for i, v in enumerate(net):
+        ax.annotate(f"{v:+.3f}", (x[i], v), textcoords="offset points", xytext=(0, 11 if v >= 0 else -17),
+                    ha="center", fontsize=8.5, color=INK, fontweight="bold", zorder=5)
+    ax.axhline(0, color="#C3C2B7", linewidth=1.2, zorder=1)
+    ax.set_xlim(-0.72, len(pairs) - 0.28)
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{t['version']}\n{'recheck' if t.get('assure') else 'kept' if t.get('kept') else 'rejected'}"
+                        for t, _ in pairs], fontsize=9, color=MUTED)
+    ax.set_ylabel("contribution to overall avg std  (Δ ÷ %d)" % M, fontsize=9, color=MUTED)
+    ax.grid(axis="y", color=GRID, linewidth=0.8, zorder=0)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color(GRID)
+    ax.tick_params(colors=MUTED, labelsize=9)
+    h, la = ax.get_legend_handles_labels()
+    if band is not None:  # band last: it is context, the metrics are the subject
+        h, la = [e for e in h if e is not band], [e for e in la if not e.startswith("±")]
+        h.append(band)
+        la.append(f"±{floor:.3f} re-score noise floor")
+    ax.legend(h, la, fontsize=8.5, frameon=False, ncol=3, loc="upper left", bbox_to_anchor=(0, -0.13))
+    fig.suptitle(f"{run.dir.name}: which metric moved the overall std (below 0 = made it more consistent)",
+                 fontsize=11, color=INK, x=0.01, ha="left")
+    fig.tight_layout()
+    out = run.dir / "trend_contrib.png"
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out
+
+
 def plot_all(run_dir: Path) -> list[Path]:
     run = Run(str(run_dir))
-    return [plot_metric(run, k) for k in GRAPHS] + [plot_rows(run)]
+    return [plot_metric(run, k) for k in GRAPHS] + [plot_rows(run), plot_contrib(run)]
