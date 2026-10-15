@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+cache/
+runs/
+.DS_Store
+*.egg-info/
+# programme (NGO) data: inputs, prompts, results, people's work — never in the repo
+z_assessment/
+/*.csv
+/*.xlsx
+.claude/settings.local.json
