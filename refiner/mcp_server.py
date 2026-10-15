@@ -36,7 +36,7 @@ def _cfg(sheet: str, context: str, prompt: str, run: str, **kw) -> RunConfig:
 
 @mcp.tool(annotations={"openWorldHint": True})
 def prepare_run(sheet: str, context: str, prompt: str, run: str, schema: str | None = None, docs_dir: str | None = None,
-                sheet_name: str | None = None, model: str = DEFAULT_MODEL, effort: str = "high", mode: str = "standard",
+                sheet_name: str | None = None, model: str = DEFAULT_MODEL, effort: str = "high",
                 n: int | None = None) -> dict:
     """Prepare a run without scoring, in the background. The parser maps the sheet's columns and the output field,
     cuts the prompt into layers (program, metrics, notes, output; only metrics will ever be edited) and fetches every
@@ -44,21 +44,21 @@ def prepare_run(sheet: str, context: str, prompt: str, run: str, schema: str | N
 
     sheet: spreadsheet with submissions and reference judgements. context: operator notes. prompt: the prompt in use
     today (v0). run: run folder. schema: optional output schema (JSON). docs_dir: folder of downloaded files for links
-    that cannot be fetched. mode: OpenAI reasoning mode, standard or pro. n: use only the first n submissions."""
+    that cannot be fetched. effort: reasoning effort, low, medium or high. n: use only the first n submissions."""
     return api.start(_cfg(sheet, context, prompt, run, schema=schema, docs_dir=docs_dir, sheet_name=sheet_name,
-                          model=model, effort=effort, mode=mode, n=n), prepare_only=True)
+                          model=model, effort=effort, n=n), prepare_only=True)
 
 
 @mcp.tool(annotations={"openWorldHint": True})
 def start_run(sheet: str, context: str, prompt: str, run: str, schema: str | None = None, docs_dir: str | None = None,
               sheet_name: str | None = None, model: str = DEFAULT_MODEL, scorer: str | None = None, effort: str = "high",
-              mode: str = "standard", rounds: int = 8, patience: int = 4, target: float | None = None, n: int | None = None,
+              rounds: int = 8, patience: int = 4, target: float | None = None, n: int | None = None,
               workers: int = 8) -> dict:
     """Start or resume the refinement in the background; returns at once. Same arguments as prepare_run, plus
     scorer (scoring model, defaults to model) and the stop rules: rounds (ceiling), patience (rejected rounds in a
     row), target (stop at this MAE)."""
     return api.start(_cfg(sheet, context, prompt, run, schema=schema, docs_dir=docs_dir, sheet_name=sheet_name, model=model,
-                          scorer=scorer, effort=effort, mode=mode, rounds=rounds, patience=patience, target=target, n=n,
+                          scorer=scorer, effort=effort, rounds=rounds, patience=patience, target=target, n=n,
                           workers=workers))
 
 

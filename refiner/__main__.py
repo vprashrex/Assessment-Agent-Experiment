@@ -10,7 +10,7 @@ import argparse
 import json
 
 from . import api, tracing
-from .config import DEFAULT_MODEL, RunConfig
+from .config import DEFAULT_MODEL, EFFORTS, RunConfig
 from .loop import NeedsAnswers
 
 
@@ -24,8 +24,7 @@ def main() -> None:
     p.add_argument("--run", required=True)
     p.add_argument("--docs-dir", default=None, help="folder of downloaded files for links that cannot be fetched (matched by name)")
     p.add_argument("--model", default=DEFAULT_MODEL, help="parser, judge and generator")
-    p.add_argument("--effort", default="high")
-    p.add_argument("--mode", default="standard", help="OpenAI reasoning mode (standard | pro)")
+    p.add_argument("--effort", default="high", choices=EFFORTS, help="reasoning effort for every model")
     p.add_argument("--scorer", default=None, help="scoring model; defaults to --model")
     p.add_argument("--rounds", type=int, default=8)
     p.add_argument("--patience", type=int, default=4, help="stop after this many rejected rounds in a row")

@@ -39,7 +39,7 @@ rubric-refiner/
 ```bash
 uv sync                                           # environment from uv.lock
 uv run refiner --sheet S.xlsx --context C.md --prompt v0.md --run runs/NAME [--schema out.json] \
-    [--docs-dir DIR] [--model gpt-6.1-sol] [--effort high] [--mode standard|pro] [--n N] [--rounds 8]
+    [--docs-dir DIR] [--model gpt-6.1-sol] [--effort low|medium|high] [--n N] [--rounds 8]
 uv run refiner ... --prepare                      # setup only: columns, layers, attachments, questions
 uv run fastmcp run refiner/mcp_server.py:mcp      # the MCP server by hand
 ```

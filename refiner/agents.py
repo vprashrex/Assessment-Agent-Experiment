@@ -161,11 +161,11 @@ def profile(df: pd.DataFrame) -> list[dict[str, Any]]:
     return out
 
 
-def parse(df: pd.DataFrame, context: str, rubric: str, schema: dict | None, model: str, effort: str, mode: str) -> dict:
+def parse(df: pd.DataFrame, context: str, rubric: str, schema: dict | None, model: str, effort: str) -> dict:
     user = (f"OPERATOR NOTES:\n{context}\n\nCURRENT PROMPT (line-numbered):\n<<<\n{numbered(rubric)}>>>\n\n"
             f"OUTPUT SCHEMA (may be absent):\n{json.dumps(schema) if schema else '(none)'}\n\n"
             f"COLUMNS:\n{json.dumps(profile(df), ensure_ascii=False, indent=1)}")
-    setup = llm.call(model, prompt("parser"), user, SETUP_SCHEMA, effort=effort, mode=mode, name="parse-sheet")
+    setup = llm.call(model, prompt("parser"), user, SETUP_SCHEMA, effort=effort, name="parse-sheet")
     ms, q = setup["metrics"], setup["questions"]
     keys = [m["key"] for m in ms]
     if not ms or len(set(keys)) != len(keys):
@@ -199,12 +199,12 @@ def output_schema(out: dict) -> dict:
     return {"type": "object", "properties": {out["field"]: field}, "required": [out["field"]]}
 
 
-def score(rubric: str, items: list[dict], out: dict, model: str, effort: str, mode: str, workers: int,
+def score(rubric: str, items: list[dict], out: dict, model: str, effort: str, workers: int,
           schema: dict | None = None, raw: dict | None = None) -> dict[str, Any]:
-    return score_all(rubric, items, {"_": out}, model, effort, mode, workers, schema, raw)["_"]
+    return score_all(rubric, items, {"_": out}, model, effort, workers, schema, raw)["_"]
 
 
-def score_all(rubric: str, items: list[dict], outs: dict[str, dict], model: str, effort: str, mode: str,
+def score_all(rubric: str, items: list[dict], outs: dict[str, dict], model: str, effort: str,
               workers: int, schema: dict | None = None, raw: dict | None = None) -> dict[str, dict[str, Any]]:
     """Every output field from one scorer call per item: key -> {item id -> value or None}. With the operator's
     output schema the scorer answers in full, as in production, and only the output fields are read from it;
@@ -215,7 +215,7 @@ def score_all(rubric: str, items: list[dict], outs: dict[str, dict], model: str,
 
     def one(it: dict) -> tuple[str, dict]:
         try:
-            answer = llm.call(model, rubric, it["input"] + "\n\nReturn the JSON object exactly as specified.", schema, effort=effort, mode=mode,
+            answer = llm.call(model, rubric, it["input"] + "\n\nReturn the JSON object exactly as specified.", schema, effort=effort,
                               files=files_of(it), name="score-item", metadata={"item": it["id"]})
         except llm.LLMError:
             answer = {}
@@ -264,7 +264,7 @@ def _gap(pred: Any, truth: Any, out: dict) -> str:  # display only
     return f"{float(pred) - float(truth):+g}"
 
 
-def review(rubric: str, items: list[dict], preds: dict, truths: dict, out: dict, model: str, effort: str, mode: str,
+def review(rubric: str, items: list[dict], preds: dict, truths: dict, out: dict, model: str, effort: str,
            workers: int) -> dict[str, dict]:
     """One judge call per item with an output; returns id -> {observations, model_reasoning, direction, clause, comment}."""
     def one(it: dict) -> tuple[str, dict]:
@@ -273,7 +273,7 @@ def review(rubric: str, items: list[dict], preds: dict, truths: dict, out: dict,
                 f"<<<\n{it['input'][:30000]}\n>>>\n\n"
                 f"MODEL OUTPUT: {p}\nREFERENCE: {t}\nERROR (output − reference): {_gap(p, t, out)}")
         try:
-            return it["id"], llm.call(model, prompt("judge"), user, ITEM_SCHEMA, effort=effort, mode=mode, files=files_of(it),
+            return it["id"], llm.call(model, prompt("judge"), user, ITEM_SCHEMA, effort=effort, files=files_of(it),
                                      name="review-item", metadata={"item": it["id"], "output": p, "reference": t})
         except llm.LLMError as e:
             return it["id"], {"observations": "", "model_reasoning": "", "direction": "aligned", "clause": "none",
@@ -313,7 +313,7 @@ def checklist_text(issues: dict[str, dict]) -> str:
 
 
 def summarise(rubric: str, version: str, versions: list[str], reviews: dict, errs: dict, out: dict, change: str, dialogue: str,
-              checklist: dict[str, dict], tools: llm.Tools, tool_log: list, model: str, effort: str, mode: str) -> dict:
+              checklist: dict[str, dict], tools: llm.Tools, tool_log: list, model: str, effort: str) -> dict:
     notes = [f"[{i}] {r['direction']} ({_size(errs.get(i), out)})\n   observations: {r.get('observations', '')}\n"
              f"   model reasoning: {r.get('model_reasoning', '')}\n   clause: {r['clause'][:200]}\n   comment: {r['comment']}"
              for i, r in sorted(reviews.items())]
@@ -321,7 +321,7 @@ def summarise(rubric: str, version: str, versions: list[str], reviews: dict, err
             f"VERSIONS SCORED SO FAR: {versions}\n\nISSUE CHECKLIST FROM EARLIER ROUNDS:\n{checklist_text(checklist)}\n\n"
             f"WHAT CHANGED SINCE LAST ROUND:\n{change}\n\nNOTES ON EVERY SUBMISSION, scored with {version}:\n" + "\n".join(notes)
             + f"\n\nDIALOGUE SO FAR:\n{dialogue[-20000:] or '(none)'}")
-    return llm.call(model, prompt("judge"), user, SUMMARY_SCHEMA, effort=effort, mode=mode, tools=tools, tool_log=tool_log,
+    return llm.call(model, prompt("judge"), user, SUMMARY_SCHEMA, effort=effort, tools=tools, tool_log=tool_log,
                     name="summarise-round", metadata={"version": version})
 
 
@@ -387,8 +387,7 @@ def rewrite(chunks: list[dict], parts: list[str]) -> tuple[list[dict], list[str]
             for c in chunks], []
 
 
-def generate(chunks: list[dict], summary: dict, csv: str, dialogue: str, model: str, effort: str,
-             mode: str) -> tuple[list[dict], dict, list[str]]:
+def generate(chunks: list[dict], summary: dict, csv: str, dialogue: str, model: str, effort: str) -> tuple[list[dict], dict, list[str]]:
     pats = checklist_text(summary["checklist"])
     task = (f"MODE: REWRITE — the reviewer measured the misses as scattered with no systematic pattern, so piecewise edits will "
             f"not converge. Brief: {summary['rewrite_brief']}" if summary["mode"] == "rewrite" else "MODE: EDIT")
@@ -398,12 +397,12 @@ def generate(chunks: list[dict], summary: dict, csv: str, dialogue: str, model: 
     def build(gen: dict) -> tuple[list[dict], list[str]]:
         return rewrite(chunks, gen["rewrite"]) if summary["mode"] == "rewrite" else apply(chunks, gen["edits"])
 
-    gen = llm.call(model, prompt("generator"), user, GEN_SCHEMA, effort=effort, mode=mode, name="write-candidate",
+    gen = llm.call(model, prompt("generator"), user, GEN_SCHEMA, effort=effort, name="write-candidate",
                    metadata={"mode": summary["mode"]})
     new, problems = build(gen)
     if problems:
         gen = llm.call(model, prompt("generator"), user + "\n\nREJECTED: " + "; ".join(problems) + ". Fix and return again.",
-                       GEN_SCHEMA, effort=effort, mode=mode, name="write-candidate",
+                       GEN_SCHEMA, effort=effort, name="write-candidate",
                        metadata={"mode": summary["mode"], "retry_after": "; ".join(problems)[:500]})
         new, problems = build(gen)
     return new, gen, problems

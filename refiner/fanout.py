@@ -84,7 +84,7 @@ def compose(run: Run, a, setup: dict, items: list[dict], subs: list[Run]) -> dic
             scored_with[name] = sha
             answers: dict = {}
             with tracing.span("score-items", input={"version": name, "items": len(items)}):
-                run.write(f"{d}/scores.json", agents.score_all(prompt, items, outs, schema=setup.get("output_schema"), model=a.scorer, effort=a.effort, mode=a.mode,
+                run.write(f"{d}/scores.json", agents.score_all(prompt, items, outs, schema=setup.get("output_schema"), model=a.scorer, effort=a.effort,
                                                                workers=a.workers, raw=answers))
             run.write(f"{d}/outputs.json", answers)
         sc = run.read(f"{d}/scores.json")

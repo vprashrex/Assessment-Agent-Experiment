@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 DEFAULT_MODEL = "gpt-6.1-sol"
+EFFORTS = ("low", "medium", "high")  # one reasoning knob; llm.py maps it to each provider
 
 
 @dataclass
@@ -20,7 +21,7 @@ class RunConfig:
     schema     optional output schema (JSON file)
     docs_dir   folder of downloaded files for links that cannot be fetched (matched by name)
     model      parser, judge and generator; `scorer` defaults to it
-    effort     reasoning effort; `mode` is the OpenAI reasoning mode (standard | pro)
+    effort     reasoning effort for every model and provider: low | medium | high
     rounds     ceiling on rounds; `patience` stops after that many rejected rounds in a row; `target` stops at that MAE
     n          use only the first n items
     """
@@ -33,7 +34,6 @@ class RunConfig:
     docs_dir: str | None = None
     model: str = DEFAULT_MODEL
     effort: str = "high"
-    mode: str = "standard"
     scorer: str | None = None
     rounds: int = 8
     patience: int = 4
@@ -48,8 +48,8 @@ class RunConfig:
                                              ("schema", self.schema), ("docs_dir", self.docs_dir)) if v and not Path(v).exists()]
         if missing:
             raise FileNotFoundError("Not found — " + "; ".join(missing))
-        if self.mode not in ("standard", "pro"):
-            raise ValueError("mode must be 'standard' or 'pro'")
+        if self.effort not in EFFORTS:
+            raise ValueError(f"effort must be one of {', '.join(EFFORTS)}")
 
     def args(self) -> list[str]:
         """The same run as command-line arguments for `python -m refiner`."""

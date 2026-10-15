@@ -79,7 +79,7 @@ class NeedsAnswers(Exception):
 
 def labels(a, metric: str = "") -> dict:
     """Run settings attached to every trace of the run."""
-    return {"model": a.model, "scorer": a.scorer or a.model, "effort": a.effort, "mode": a.mode, **({"metric": metric} if metric else {})}
+    return {"model": a.model, "scorer": a.scorer or a.model, "effort": a.effort, **({"metric": metric} if metric else {})}
 
 
 def setup_run(run: Run, a) -> tuple[dict, list[dict]]:
@@ -97,7 +97,7 @@ def setup_run(run: Run, a) -> tuple[dict, list[dict]]:
 def _setup(run: Run, a, df, v0: str) -> tuple[dict, list[dict]]:
     if not run.read("setup/setup.json"):
         schema = json.loads(Path(a.schema).read_text()) if a.schema else None
-        setup = agents.parse(df, Path(a.context).read_text(), v0, schema, a.model, a.effort, a.mode)
+        setup = agents.parse(df, Path(a.context).read_text(), v0, schema, a.model, a.effort)
         setup["output_schema"] = schema  # what the scorer answers in, as in production
         if setup["questions"]:
             raise NeedsAnswers(setup["questions"])
@@ -167,7 +167,7 @@ def refine(run: Run, a, setup: dict, items: list[dict]) -> None:
     kind = out["type"]
     truths = {it["id"]: reference(it["truth"], out) for it in items}
     refs = {i: v for i, v in truths.items() if v is not None}
-    am = dict(model=a.model, effort=a.effort, mode=a.mode)
+    am = dict(model=a.model, effort=a.effort)
     V = lambda ver, f: f"versions/{ver}/{f}"  # noqa: E731
 
     def scored(ver: str) -> dict:
@@ -176,7 +176,7 @@ def refine(run: Run, a, setup: dict, items: list[dict]) -> None:
                 answers: dict = {}
                 run.write(V(ver, "scores.json"), agents.score(run.read(V(ver, "prompt.md")), items, out, schema=setup.get("output_schema"),
                                                               raw=answers, model=a.scorer, effort=a.effort,
-                                                              mode=a.mode, workers=a.workers))
+                                                              workers=a.workers))
                 run.write(V(ver, "outputs.json"), answers)
                 s.update(output=metrics(ver))
         return run.read(V(ver, "scores.json"))

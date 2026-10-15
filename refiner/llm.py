@@ -115,15 +115,15 @@ def _anthropic(model: str, system: str, user: str, schema: dict, effort: str, to
     raise LLMError(f"{model}: no final answer after {MAX_TOOL_TURNS} tool turns")
 
 
-def _openai(model: str, system: str, user: str, schema: dict, effort: str, mode: str, tools: Tools | None, log: list, files: Files,
+def _openai(model: str, system: str, user: str, schema: dict, effort: str, tools: Tools | None, log: list, files: Files,
             name: str, meta: dict | None) -> str:
-    kw: dict[str, Any] = dict(model=model, instructions=system, reasoning={"effort": effort, "mode": mode},
+    kw: dict[str, Any] = dict(model=model, instructions=system, reasoning={"effort": effort},
                               text={"format": {"type": "json_schema", "name": "out", "schema": _clean(schema), "strict": False}})
     if tools:
         kw["tools"] = [{"type": "function", "name": n, "description": d, "parameters": s} for n, (d, s, _) in tools.items()]
 
     def create(**args: Any) -> Any:
-        with tracing.generation(name, model, system, user, files, meta, effort=effort, mode=mode) as record:
+        with tracing.generation(name, model, system, user, files, meta, effort=effort) as record:
             resp = _client("openai").responses.create(**args, **kw)
             record(resp)
         return resp
@@ -139,7 +139,7 @@ def _openai(model: str, system: str, user: str, schema: dict, effort: str, mode:
     raise LLMError(f"{model}: no final answer after {MAX_TOOL_TURNS} tool turns")
 
 
-def call(model: str, system: str, user: str, schema: dict, *, effort: str = "high", mode: str = "standard",
+def call(model: str, system: str, user: str, schema: dict, *, effort: str = "high",
          tools: Tools | None = None, tool_log: list | None = None, files: Files | None = None, tries: int = 4,
          name: str = "llm-call", metadata: dict | None = None) -> dict:
     """Structured JSON from any supported model; retries transport errors and invalid JSON with backoff.
@@ -149,7 +149,7 @@ def call(model: str, system: str, user: str, schema: dict, *, effort: str = "hig
         for i in range(tries):
             log: list = []
             try:
-                text = (_openai(model, system, user, schema, effort, mode, tools, log, files or [], name, metadata)
+                text = (_openai(model, system, user, schema, effort, tools, log, files or [], name, metadata)
                         if model.startswith(("gpt-", "o1", "o3", "o4"))
                         else _anthropic(model, system, user, schema, effort, tools, log, files or [], name, metadata))
                 out = json.loads(text)
