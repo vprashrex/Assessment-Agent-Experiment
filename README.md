@@ -46,18 +46,18 @@ flowchart LR
 
 ```
 rubric-refiner/
-├── refiner/
+├── refiner/             each folder has a CLAUDE.md with one line per file
+│   ├── agents/          parser, scorer, judge, generator, layers, math_tool, llm, models, providers/
+│   ├── engine/          items, loop, fanout (+ composer), report, events
+│   ├── mcp/             server.py (actions), routes.py (HTTP), inspect.py
+│   ├── prompts/         every prompt: system/, user.py, judge_tools.py, mcp.py
+│   ├── utils/           excel, documents, downloads, files, process
 │   ├── api.py           prepare, refine, start, stop, status, checklist, version, list_runs
 │   ├── config.py        RunConfig, shared by the CLI, the API and the MCP server
-│   ├── loop.py          one metric's refinement loop and issue checklist
-│   ├── fanout.py        several metrics in parallel, then the composer
-│   ├── agents.py        parser, scorer, judge, generator; layers and edit splicing
-│   ├── math_tool.py     MAE, bias, within ±1/±2, pattern threshold
-│   ├── data.py          sheets (xlsx/csv), links, attachments
-│   ├── llm.py           Anthropic and OpenAI calls
-│   ├── excel.py         results.xlsx
-│   ├── mcp_server.py    FastMCP server
-│   └── prompts/         parser.md, judge.md, generator.md
+│   └── paths.py         refiner-data/ layout
+├── models.yaml          every model: provider, roles, effort options, pricing; the UI reads it at GET /models
+├── refiner-data/        the server's files per chat: chats/<chat_id>/{inputs/, run/} (gitignored)
+├── docs/                architecture.md, database.md (tables, memory, pg_cron heartbeat), transport.md (SSE)
 └── runs/<run>/          one folder per run (gitignored)
 ```
 
@@ -139,13 +139,13 @@ once, so poll `run_status`. Paths are relative to the project folder.
 - **Claude Desktop**:
 
   ```bash
-  uv run fastmcp install claude-desktop refiner/mcp_server.py:mcp --name rubric-refiner \
+  uv run fastmcp install claude-desktop refiner/mcp/server.py:mcp --name rubric-refiner \
       --project "$PWD" --env REFINER_WORKDIR="$PWD"
   ```
 
   Then set `command` in `claude_desktop_config.json` to the full path of `uv` (from `which uv`) and restart Claude
   Desktop. It starts servers with a short PATH, so a plain `uv` is not found.
-- **By hand**: `uv run fastmcp run refiner/mcp_server.py:mcp`
+- **By hand**: `uv run fastmcp run refiner/mcp/server.py:mcp`
 
 The flow:
 1. `prepare_run`.

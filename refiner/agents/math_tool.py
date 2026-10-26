@@ -85,6 +85,12 @@ def agreement(errors: dict[str, float], kind: str = "number") -> dict[str, Any]:
     return out if kind == "enum" else {**out, "within1": sum(abs(x) <= 1 for x in e)}
 
 
+def summary(errors: dict[str, float], kind: str = "number") -> dict[str, Any]:
+    """The numbers every version event carries: alignment (MAE, bias, within ±1/±2, or accuracy) plus the exact count."""
+    a = alignment(errors, None, kind)
+    return {**a, "exact": sum(x == 0 for x in errors.values())} if a.get("n") else a
+
+
 def compare(old: dict[str, float], new: dict[str, float]) -> dict[str, Any]:
     """Items whose |error| got smaller (closer) / larger (further) between two versions, with the size of each move."""
     common = sorted(set(old) & set(new))

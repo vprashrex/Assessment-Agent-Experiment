@@ -11,3 +11,6 @@ z_assessment/
 /*.csv
 /*.xlsx
 .claude/settings.local.json
+refiner-data/
+rubric-agent-storage/
+docs/

@@ -1,0 +1,890 @@
+# Every model the refiner knows, in the same shape as Kaapi's model catalog.
+# The refiner reads this for routing, output limits and the reasoning setting; the chat UI reads it (GET /models)
+# for its model pickers and defaults. Add a model here and it shows up everywhere; set is_active: false to hide it.
+#
+# Fields
+#   provider            anthropic | openai | google | sarvamai | elevenlabs
+#   model_name          the provider's model id
+#   label               name shown in the UI
+#   completion_type     what the model produces: text, tts, stt (empty for embeddings)
+#   roles               which agents may use it: agent (the chat), parser, judge, generator, scorer.
+#                       Empty = not offered in the UI (speech and embedding models)
+#   tools               can call tools (the judge needs this)
+#   config              tunable settings, Kaapi style: type, default, options/min/max, description.
+#                       The reasoning setting is `effort` (Anthropic, OpenAI) or `thinking_level` (Google); the UI's
+#                       effort (low | medium | high) is passed as is, or the model's default if it does not list it.
+#                       A model without one runs without a reasoning setting.
+#   input_modalities    what can be sent: TEXT, IMAGE, PDF, AUDIO
+#   pricing             USD per million tokens (response, batch, audio); null when not known
+#   is_active           false hides it
+
+defaults: {agent: claude-opus-5-5, parser: claude-sonnet-5-5, judge: claude-sonnet-5-5, generator: claude-sonnet-5-5, scorer: claude-sonnet-5-5, effort: high}
+models:
+- provider: anthropic
+  model_name: claude-opus-5-5
+  label: Claude Opus 5.5
+  completion_type: [text]
+  roles: [agent, parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: medium
+      options: [low, medium, high, xhigh, max]
+      description: Reasoning depth with adaptive thinking. Higher = better but slower/costlier.
+    max_output_tokens: {type: int, min: 1, max: 128000, default: 16000, description: 'Max tokens in the response, thinking included.'}
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 4, output_token_cost: 20}
+    batch: {input_token_cost: 2, output_token_cost: 10}
+  is_active: true
+- provider: anthropic
+  model_name: claude-sonnet-5-5
+  label: Claude Sonnet 5.5
+  completion_type: [text]
+  roles: [agent, parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: high
+      options: [low, medium, high, xhigh, max]
+      description: Reasoning depth with adaptive thinking. Higher = better but slower/costlier.
+    max_output_tokens: {type: int, min: 1, max: 128000, default: 16000, description: 'Max tokens in the response, thinking included.'}
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 2, output_token_cost: 10}
+    batch: {input_token_cost: 1, output_token_cost: 5}
+  is_active: true
+- provider: anthropic
+  model_name: claude-haiku-5-5
+  label: Claude Haiku 5.5
+  completion_type: [text]
+  roles: [agent, parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: medium
+      options: [low, medium, high, xhigh, max]
+      description: Reasoning depth with adaptive thinking. Higher = better but slower/costlier.
+    max_output_tokens: {type: int, min: 1, max: 128000, default: 16000, description: 'Max tokens in the response, thinking included.'}
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 0.1, output_token_cost: 0.5}
+    batch: {input_token_cost: 0.05, output_token_cost: 0.25}
+  is_active: true
+- provider: anthropic
+  model_name: claude-fable-5-1
+  label: Claude Fable 5.1
+  completion_type: [text]
+  roles: [agent, parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: high
+      options: [low, medium, high, xhigh, max]
+      description: Reasoning depth. Thinking is always on for this model. Higher = better but slower/costlier.
+    max_output_tokens: {type: int, min: 1, max: 128000, default: 16000, description: 'Max tokens in the response, thinking included.'}
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 10, output_token_cost: 50}
+    batch: {input_token_cost: 5, output_token_cost: 25}
+  is_active: true
+- provider: anthropic
+  model_name: claude-fable-5
+  label: Claude Fable 5
+  completion_type: [text]
+  roles: [agent, parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: high
+      options: [low, medium, high, xhigh, max]
+      description: Reasoning depth. Thinking is always on for this model. Higher = better but slower/costlier.
+    max_output_tokens: {type: int, min: 1, max: 128000, default: 16000, description: 'Max tokens in the response, thinking included.'}
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 10, output_token_cost: 50}
+    batch: {input_token_cost: 5, output_token_cost: 25}
+  is_active: true
+- provider: anthropic
+  model_name: claude-sonnet-5
+  label: Claude Sonnet 5
+  completion_type: [text]
+  roles: [agent, parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: high
+      options: [low, medium, high, xhigh, max]
+      description: Reasoning depth with adaptive thinking. Higher = better but slower/costlier.
+    max_output_tokens: {type: int, min: 1, max: 128000, default: 16000, description: 'Max tokens in the response, thinking included.'}
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 3, output_token_cost: 15}
+    batch: {input_token_cost: 1.5, output_token_cost: 7.5}
+  is_active: true
+- provider: anthropic
+  model_name: claude-opus-4-8
+  label: Claude Opus 4.8
+  completion_type: [text]
+  roles: [agent, parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: high
+      options: [low, medium, high, xhigh, max]
+      description: Reasoning depth with adaptive thinking. Higher = better but slower/costlier.
+    max_output_tokens: {type: int, min: 1, max: 128000, default: 16000, description: 'Max tokens in the response, thinking included.'}
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 5, output_token_cost: 25}
+    batch: {input_token_cost: 2.5, output_token_cost: 12.5}
+  is_active: true
+- provider: anthropic
+  model_name: claude-sonnet-4-6
+  label: Claude Sonnet 4.6
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    temperature: {type: float, min: 0, max: 2, default: 1}
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 3, output_token_cost: 15}
+    batch: {input_token_cost: 1.5, output_token_cost: 7.5}
+  is_active: true
+- provider: anthropic
+  model_name: claude-haiku-4-5
+  label: Claude Haiku 4.5
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    temperature: {type: float, min: 0, max: 2, default: 1}
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 1, output_token_cost: 5}
+    batch: {input_token_cost: 0.5, output_token_cost: 2.5}
+    audio: {input_token_cost: 1, output_token_cost: 2}
+  is_active: true
+- provider: openai
+  model_name: gpt-6.1-sol
+  label: GPT-6.1 Sol
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: medium
+      options: [none, low, medium, high, xhigh, max]
+      description: How long the model spends reasoning. Higher = better but slower.
+    summary:
+      type: enum
+      default: auto
+      options: [auto, detailed, concise, 'null']
+      description: Summarize the reasoning result.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing: null
+  is_active: true
+- provider: openai
+  model_name: gpt-5.6-sol
+  label: GPT-5.6 Sol
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: medium
+      options: [none, low, medium, high, xhigh, max]
+      description: How long the model spends reasoning. Higher = better but slower.
+    summary:
+      type: enum
+      default: auto
+      options: [auto, detailed, concise, 'null']
+      description: Summarize the reasoning result.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 5, output_token_cost: 30}
+    batch: {input_token_cost: 2.5, output_token_cost: 15}
+  is_active: true
+- provider: openai
+  model_name: gpt-5.6-terra
+  label: GPT-5.6 Terra
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: medium
+      options: [none, low, medium, high, xhigh, max]
+      description: How long the model spends reasoning. Higher = better but slower.
+    summary:
+      type: enum
+      default: auto
+      options: [auto, detailed, concise, 'null']
+      description: Summarize the reasoning result.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 2, output_token_cost: 12}
+    batch: {input_token_cost: 1, output_token_cost: 6}
+  is_active: true
+- provider: openai
+  model_name: gpt-5.6-luna
+  label: GPT-5.6 Luna
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: medium
+      options: [none, low, medium, high, xhigh, max]
+      description: How long the model spends reasoning. Higher = better but slower.
+    summary:
+      type: enum
+      default: auto
+      options: [auto, detailed, concise, 'null']
+      description: Summarize the reasoning result.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 0.2, output_token_cost: 1.2}
+    batch: {input_token_cost: 0.1, output_token_cost: 0.6}
+  is_active: true
+- provider: openai
+  model_name: gpt-5.4-pro
+  label: GPT-5.4 Pro
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: medium
+      options: [medium, high, xhigh]
+      description: How long the model spends reasoning. Higher = better but slower.
+    summary:
+      type: enum
+      default: auto
+      options: [auto, detailed, concise, 'null']
+      description: Summarize the reasoning result.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 30, output_token_cost: 180}
+    batch: {input_token_cost: 15, output_token_cost: 90}
+  is_active: true
+- provider: openai
+  model_name: gpt-5.4
+  label: GPT-5.4
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: medium
+      options: [none, low, medium, high, xhigh]
+      description: How long the model spends reasoning. Higher = better but slower.
+    summary:
+      type: enum
+      default: auto
+      options: [auto, detailed, concise, 'null']
+      description: Summarize the reasoning result.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 2.5, output_token_cost: 15}
+    batch: {input_token_cost: 1.25, output_token_cost: 7.5}
+  is_active: true
+- provider: openai
+  model_name: gpt-5.4-mini
+  label: GPT-5.4 mini
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: medium
+      options: [medium, high, xhigh]
+      description: How long the model spends reasoning. Higher = better but slower.
+    summary:
+      type: enum
+      default: auto
+      options: [auto, detailed, concise, 'null']
+      description: Summarize the reasoning result.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 0.75, output_token_cost: 4.5}
+    batch: {input_token_cost: 0.375, output_token_cost: 2.25}
+  is_active: true
+- provider: openai
+  model_name: gpt-5.4-nano
+  label: GPT-5.4 nano
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: medium
+      options: [none, low, medium, high, xhigh]
+      description: How long the model spends reasoning. Higher = better but slower.
+    summary:
+      type: enum
+      default: auto
+      options: [auto, detailed, concise, 'null']
+      description: Summarize the reasoning result.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 0.2, output_token_cost: 1.25}
+    batch: {input_token_cost: 0.1, output_token_cost: 0.625}
+  is_active: true
+- provider: openai
+  model_name: gpt-5.2
+  label: GPT-5.2
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: medium
+      options: [none, low, medium, high, xhigh]
+      description: How long the model spends reasoning. Higher = better but slower.
+    summary:
+      type: enum
+      default: auto
+      options: [auto, detailed, concise, 'null']
+      description: Summarize the reasoning result.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 1.75, output_token_cost: 14}
+    batch: {input_token_cost: 0.875, output_token_cost: 7}
+  is_active: true
+- provider: openai
+  model_name: gpt-5.1
+  label: GPT-5.1
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: medium
+      options: [none, low, medium, high]
+      description: How long the model spends reasoning. Higher = better but slower.
+    summary:
+      type: enum
+      default: auto
+      options: [auto, detailed, concise, 'null']
+      description: Summarize the reasoning result.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 1.25, output_token_cost: 10}
+    batch: {input_token_cost: 0.625, output_token_cost: 5}
+  is_active: true
+- provider: openai
+  model_name: gpt-5
+  label: GPT-5
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: medium
+      options: [minimal, low, medium, high]
+      description: How long the model spends reasoning. Higher = better but slower.
+    summary:
+      type: enum
+      default: auto
+      options: [auto, detailed, concise, 'null']
+      description: Summarize the reasoning result.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 1.25, output_token_cost: 10}
+    batch: {input_token_cost: 0.625, output_token_cost: 5}
+  is_active: true
+- provider: openai
+  model_name: gpt-5-mini
+  label: GPT-5 mini
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: medium
+      options: [minimal, low, medium, high]
+      description: How long the model spends reasoning. Higher = better but slower.
+    summary:
+      type: enum
+      default: auto
+      options: [auto, detailed, concise, 'null']
+      description: Summarize the reasoning result.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 0.25, output_token_cost: 2}
+    batch: {input_token_cost: 0.125, output_token_cost: 1}
+  is_active: true
+- provider: openai
+  model_name: gpt-5-nano
+  label: GPT-5 nano
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: medium
+      options: [minimal, low, medium, high]
+      description: How long the model spends reasoning. Higher = better but slower.
+    summary:
+      type: enum
+      default: auto
+      options: [auto, detailed, concise, 'null']
+      description: Summarize the reasoning result.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 0.05, output_token_cost: 0.4}
+    batch: {input_token_cost: 0.025, output_token_cost: 0.2}
+  is_active: true
+- provider: openai
+  model_name: gpt-4.1
+  label: GPT-4.1
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    top_p: {type: float, min: 0, max: 1, default: 1, description: 'Nucleus sampling. Use either this or temperature, not both.'}
+    temperature: {type: float, min: 0, max: 2, default: 1, description: Controls randomness. Lower = more deterministic.}
+    max_output_tokens: {type: int, min: 1, max: 32768, default: 2048, description: Max tokens in the response.}
+  input_modalities: [TEXT, IMAGE]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 2, output_token_cost: 8}
+    batch: {input_token_cost: 1, output_token_cost: 4}
+  is_active: true
+- provider: openai
+  model_name: gpt-4.1-mini
+  label: GPT-4.1 mini
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    top_p: {type: float, min: 0, max: 1, default: 1, description: 'Nucleus sampling. Use either this or temperature, not both.'}
+    temperature: {type: float, min: 0, max: 2, default: 1, description: Controls randomness. Lower = more deterministic.}
+    max_output_tokens: {type: int, min: 1, max: 32768, default: 2048, description: Max tokens in the response.}
+  input_modalities: [TEXT, IMAGE]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 0.4, output_token_cost: 1.6}
+    batch: {input_token_cost: 0.2, output_token_cost: 0.8}
+  is_active: true
+- provider: openai
+  model_name: gpt-4.1-nano
+  label: GPT-4.1 nano
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    top_p: {type: float, min: 0, max: 1, default: 1, description: 'Nucleus sampling. Use either this or temperature, not both.'}
+    temperature: {type: float, min: 0, max: 2, default: 1, description: Controls randomness. Lower = more deterministic.}
+    max_output_tokens: {type: int, min: 1, max: 32768, default: 2048, description: Max tokens in the response.}
+  input_modalities: [TEXT, IMAGE]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 0.1, output_token_cost: 0.4}
+    batch: {input_token_cost: 0.05, output_token_cost: 0.2}
+  is_active: false
+- provider: openai
+  model_name: gpt-4o
+  label: GPT-4o
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    top_p: {type: float, min: 0, max: 1, default: 1, description: 'Nucleus sampling. Use either this or temperature, not both.'}
+    temperature: {type: float, min: 0, max: 2, default: 1, description: Controls randomness. Lower = more deterministic.}
+    max_output_tokens: {type: int, min: 1, max: 32768, default: 2048, description: Max tokens in the response.}
+  input_modalities: [TEXT, IMAGE]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 2.5, output_token_cost: 10}
+    batch: {input_token_cost: 1.25, output_token_cost: 5}
+  is_active: true
+- provider: openai
+  model_name: gpt-4o-mini
+  label: GPT-4o mini
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    top_p: {type: float, min: 0, max: 1, default: 1, description: 'Nucleus sampling. Use either this or temperature, not both.'}
+    temperature: {type: float, min: 0, max: 2, default: 1, description: Controls randomness. Lower = more deterministic.}
+    max_output_tokens: {type: int, min: 1, max: 32768, default: 2048, description: Max tokens in the response.}
+  input_modalities: [TEXT, IMAGE]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 0.15, output_token_cost: 0.6}
+    batch: {input_token_cost: 0.075, output_token_cost: 0.3}
+  is_active: true
+- provider: openai
+  model_name: text-embedding-3-large
+  label: Text Embedding 3 Large
+  completion_type: []
+  roles: []
+  tools: false
+  config:
+    dimensions: {type: int, min: 1, max: 3072, default: 3072, description: Output embedding size. Shorten below 3072 to trade accuracy for smaller vectors.}
+    encoding_format:
+      type: enum
+      default: float
+      options: [float, base64]
+      description: Return format for the embeddings.
+  input_modalities: [TEXT]
+  output_modalities: []
+  pricing:
+    response: {input_token_cost: 0.13, output_token_cost: 0}
+    batch: {input_token_cost: 0.065, output_token_cost: 0}
+  is_active: true
+- provider: openai
+  model_name: text-embedding-3-small
+  label: Text Embedding 3 Small
+  completion_type: []
+  roles: []
+  tools: false
+  config:
+    dimensions: {type: int, min: 1, max: 1536, default: 1536, description: Output embedding size. Shorten below 1536 to trade accuracy for smaller vectors.}
+    encoding_format:
+      type: enum
+      default: float
+      options: [float, base64]
+      description: Return format for the embeddings.
+  input_modalities: [TEXT]
+  output_modalities: []
+  pricing:
+    response: {input_token_cost: 0.02, output_token_cost: 0}
+    batch: {input_token_cost: 0.01, output_token_cost: 0}
+  is_active: true
+- provider: openai
+  model_name: text-embedding-ada-002
+  label: Text Embedding Ada 002
+  completion_type: []
+  roles: []
+  tools: false
+  config:
+    encoding_format:
+      type: enum
+      default: float
+      options: [float, base64]
+      description: Return format for the embeddings. (This model does not support the dimensions parameter.)
+  input_modalities: [TEXT]
+  output_modalities: []
+  pricing:
+    response: {input_token_cost: 0.1, output_token_cost: 0}
+    batch: {input_token_cost: 0.05, output_token_cost: 0}
+  is_active: true
+- provider: google
+  model_name: gemini-pro-latest
+  label: Gemini Pro (latest)
+  completion_type: [text]
+  roles: [scorer]
+  tools: false
+  config:
+    thinking_level:
+      type: enum
+      default: high
+      options: [low, medium, high]
+      description: Max reasoning depth before output. high = best quality, low = faster/cheaper.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing: null
+  is_active: true
+- provider: google
+  model_name: gemini-flash-latest
+  label: Gemini Flash (latest)
+  completion_type: [text]
+  roles: [scorer]
+  tools: false
+  config:
+    thinking_level:
+      type: enum
+      default: high
+      options: [minimal, low, medium, high]
+      description: Max reasoning depth before output. high = best quality, low = faster/cheaper.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing: null
+  is_active: true
+- provider: google
+  model_name: gemini-3.8-flash
+  label: Gemini 3.8 Flash
+  completion_type: [text]
+  roles: [scorer]
+  tools: false
+  config:
+    thinking_level:
+      type: enum
+      default: high
+      options: [minimal, low, medium, high]
+      description: Max reasoning depth before output. high = best quality, low = faster/cheaper.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing: null
+  is_active: true
+- provider: google
+  model_name: gemini-3.5-flash-preview
+  label: Gemini 3.5 Flash (preview)
+  completion_type: [text]
+  roles: [scorer]
+  tools: false
+  config:
+    temperature: {type: float, min: 0, max: 2, default: 1, description: Controls randomness. Lower = more deterministic.}
+    thinking_level:
+      type: enum
+      default: low
+      options: [minimal, low, medium, high]
+      description: Max reasoning depth before output. high = best quality, low = faster/cheaper.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 1.5, output_token_cost: 9}
+    batch: {input_token_cost: 0.75, output_token_cost: 4.5}
+  is_active: false
+- provider: google
+  model_name: gemini-3.1-pro-preview
+  label: Gemini 3.1 Pro (preview)
+  completion_type: [text]
+  roles: [scorer]
+  tools: false
+  config:
+    thinking_level:
+      type: enum
+      default: high
+      options: [low, medium, high]
+      description: Max reasoning depth before output. high = best quality, low = faster/cheaper.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 2, output_token_cost: 12}
+    batch: {input_token_cost: 1, output_token_cost: 6}
+    audio: {input_token_cost: 3.5, output_token_cost: 12}
+  is_active: true
+- provider: google
+  model_name: gemini-3-flash-preview
+  label: Gemini 3 Flash (preview)
+  completion_type: [text]
+  roles: [scorer]
+  tools: false
+  config:
+    temperature: {type: float, min: 0, max: 2, default: 1, description: Controls randomness. Lower = more deterministic.}
+    thinking_level:
+      type: enum
+      default: high
+      options: [minimal, low, medium, high]
+      description: Max reasoning depth before output.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 0.5, output_token_cost: 3}
+    batch: {input_token_cost: 0.25, output_token_cost: 1.5}
+    audio: {input_token_cost: 1, output_token_cost: 3}
+  is_active: true
+- provider: google
+  model_name: gemini-3.1-flash-lite
+  label: Gemini 3.1 Flash Lite
+  completion_type: [text]
+  roles: [scorer]
+  tools: false
+  config:
+    thinking_level:
+      type: enum
+      default: low
+      options: [minimal, low, medium, high]
+      description: Max reasoning depth before output. high = best quality, low = faster/cheaper.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing: null
+  is_active: true
+- provider: google
+  model_name: gemini-2.5-pro
+  label: Gemini 2.5 Pro
+  completion_type: [text]
+  roles: [scorer]
+  tools: false
+  config:
+    temperature: {type: float, min: 0, max: 2, default: 1, description: Controls randomness. Lower = more deterministic.}
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 1.25, output_token_cost: 10}
+    batch: {input_token_cost: 0.625, output_token_cost: 5}
+    audio: {input_token_cost: 3.5, output_token_cost: 10}
+  is_active: true
+- provider: google
+  model_name: gemini-2.5-flash
+  label: Gemini 2.5 Flash
+  completion_type: [text]
+  roles: [scorer]
+  tools: false
+  config:
+    temperature: {type: float, min: 0, max: 2, default: 1, description: Controls randomness. Lower = more deterministic.}
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:
+    response: {input_token_cost: 0.3, output_token_cost: 2.5}
+    batch: {input_token_cost: 0.15, output_token_cost: 1.25}
+    audio: {input_token_cost: 1, output_token_cost: 2.5}
+  is_active: true
+- provider: google
+  model_name: gemini-2.5-flash-preview-tts
+  label: Gemini 2.5 Flash TTS (preview)
+  completion_type: [tts]
+  roles: []
+  tools: false
+  config:
+    voice:
+      type: enum
+      default: Kore
+      options: [Kore, Orus, Leda, Charon]
+      description: TTS voice.
+  input_modalities: [TEXT]
+  output_modalities: [AUDIO]
+  pricing:
+    response: {input_token_cost: 0.5, output_token_cost: 10}
+    batch: {input_token_cost: 0.25, output_token_cost: 5}
+    audio: {input_token_cost: 0.5, output_token_cost: 10}
+  is_active: true
+- provider: google
+  model_name: gemini-2.5-pro-preview-tts
+  label: Gemini 2.5 Pro TTS (preview)
+  completion_type: [tts]
+  roles: []
+  tools: false
+  config:
+    voice:
+      type: enum
+      default: Kore
+      options: [Kore, Orus, Leda, Charon]
+      description: TTS voice.
+  input_modalities: [TEXT]
+  output_modalities: [AUDIO]
+  pricing:
+    response: {input_token_cost: 1, output_token_cost: 20}
+    batch: {input_token_cost: 0.5, output_token_cost: 10}
+    audio: {input_token_cost: 1, output_token_cost: 20}
+  is_active: true
+- provider: google
+  model_name: gemini-3.1-flash-tts-preview
+  label: Gemini 3.1 Flash TTS (preview)
+  completion_type: [tts]
+  roles: []
+  tools: false
+  config: {}
+  input_modalities: [TEXT]
+  output_modalities: [AUDIO]
+  pricing: null
+  is_active: true
+- provider: sarvamai
+  model_name: bulbul:v3
+  label: Bulbul v3
+  completion_type: [tts]
+  roles: []
+  tools: false
+  config:
+    voice:
+      type: enum
+      default: simran
+      options: [simran, shubh, roopa]
+      description: TTS voice.
+  input_modalities: [TEXT]
+  output_modalities: [AUDIO]
+  pricing: null
+  is_active: true
+- provider: sarvamai
+  model_name: saaras:v3
+  label: Saaras v3
+  completion_type: [stt]
+  roles: []
+  tools: false
+  config:
+    mode:
+      type: enum
+      default: transcribe
+      options: [transcribe, translate, verbatim, translit, codemix]
+      description: 'Output mode: transcribe (original language), translate (to English), verbatim, translit (Roman script), codemix.'
+    language_code:
+      type: enum
+      default: unknown
+      options: [unknown, hi-IN, bn-IN, kn-IN, ml-IN, mr-IN, od-IN, pa-IN, ta-IN, te-IN, en-IN, gu-IN]
+      description: BCP-47 source language. 'unknown' = auto-detect.
+  input_modalities: [AUDIO]
+  output_modalities: [TEXT]
+  pricing: null
+  is_active: true
+- provider: elevenlabs
+  model_name: eleven_v3
+  label: Eleven v3
+  completion_type: [tts]
+  roles: []
+  tools: false
+  config:
+    voice:
+      type: enum
+      default: Sarah
+      options: [Sarah, George, Callum, Liam]
+      description: TTS voice.
+  input_modalities: [TEXT]
+  output_modalities: [AUDIO]
+  pricing: null
+  is_active: true
+- provider: elevenlabs
+  model_name: scribe_v2
+  label: Scribe v2
+  completion_type: [stt]
+  roles: []
+  tools: false
+  config:
+    diarize: {type: bool, default: false, description: Label each word with a speaker ID.}
+    language_code: {type: string, default: null, description: ISO 639-1 or 639-3 language code. Auto-detects if unset (90+ languages).}
+    tag_audio_events: {type: bool, default: true, description: 'Tag non-speech events (laughter, applause, etc.).'}
+    timestamps_granularity:
+      type: enum
+      default: word
+      options: [word, character, none]
+      description: Timestamp precision in the transcript.
+  input_modalities: [AUDIO]
+  output_modalities: [TEXT]
+  pricing: null
+  is_active: true

@@ -19,17 +19,21 @@ from __future__ import annotations
 
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
-from . import agents, excel, tracing
-from . import math_tool as M
-from .loop import Run, debug, labels, numbers, refine
+from .. import agents
+from ..agents import math_tool as M
+from ..utils import excel
+from ..utils.excel import read_sheet
+from . import events, report
+from .loop import Run, debug, numbers, refine
 
 EDITABLE = agents.EDITABLE
 
 
 def split(run: Run, setup: dict, items: list[dict], m: dict) -> tuple[Run, dict, list[dict]]:
     """The sub-run for metric `m`: a run folder whose setup, items and v0 prompt hold only that metric."""
-    sub = Run(run.dir / "metrics" / m["key"], session=run.session, label=m["key"], parent=run)
+    sub = Run(run.dir / "metrics" / m["key"], label=m["key"], parent=run)
     if not sub.read("versions/v0/chunks.json"):
         chunks = [c for c in run.read("setup/baseline/layout.json") if c["layer"] != EDITABLE or c.get("metric") == m["key"]]
         sub.write("setup/setup.json", {**{k: v for k, v in setup.items() if k != "layers"}, "metrics": [m],
@@ -51,13 +55,15 @@ def _without_others(schema: dict | None, setup: dict, m: dict) -> dict | None:
             "required": [k for k in schema.get("required", []) if k not in drop]}
 
 
-def main(run: Run, a, setup: dict, items: list[dict]) -> None:
+def main(run: Run, a, setup: dict, items: list[dict]) -> dict:
     subs = [split(run, setup, items, m) for m in agents.metrics_of(setup)]
     debug(run, f"=== FAN-OUT · {len(subs)} metrics in parallel: " + ", ".join(
         f"{s[0].label} ({s[1]['truth_column']} → {s[1]['output']['field']}, {len(s[2])} items)" for s in subs))
     with ThreadPoolExecutor(len(subs)) as ex:  # one loop per metric, side by side
-        list(ex.map(tracing.bind(lambda s: refine(s[0], a, s[1], s[2])), subs))
+        best = dict(zip([s[0].label for s in subs], ex.map(lambda s: refine(s[0], a, s[1], s[2]), subs)))
     compose(run, a, setup, items, [s[0] for s in subs])
+    report.write(run, a, setup, items)
+    return best
 
 
 def compose(run: Run, a, setup: dict, items: list[dict], subs: list[Run]) -> dict:
@@ -83,16 +89,13 @@ def compose(run: Run, a, setup: dict, items: list[dict], subs: list[Run]) -> dic
         if scored_with.get(name) != sha or run.read(f"{d}/scores.json") is None:  # the prompts live in setup/ and final_prompt.md
             scored_with[name] = sha
             answers: dict = {}
-            with tracing.span("score-items", input={"version": name, "items": len(items)}):
-                run.write(f"{d}/scores.json", agents.score_all(prompt, items, outs, schema=setup.get("output_schema"), model=a.scorer, effort=a.effort,
-                                                               workers=a.workers, raw=answers))
+            run.write(f"{d}/scores.json", agents.score_all(prompt, items, outs, schema=setup.get("output_schema"), model=a.scorer, effort=a.effort,
+                                                           workers=a.workers, raw=answers))
             run.write(f"{d}/outputs.json", answers)
         sc = run.read(f"{d}/scores.json")
-        return {k: M.alignment(M.item_errors(sc[k], refs[k], outs[k]["type"]), None, outs[k]["type"]) for k in outs}
+        return {k: M.summary(M.item_errors(sc[k], refs[k], outs[k]["type"]), outs[k]["type"]) for k in outs}
 
-    with tracing.span("compose-run", session=run.session, metadata=labels(a), input={"best": best}) as t:
-        together = {"baseline": measure("baseline", layout), "final": measure("final", final)}
-        t.update(output={k: {"baseline": together["baseline"][k], "final": together["final"][k]} for k in outs})
+    together = {"baseline": measure("baseline", layout), "final": measure("final", final)}
 
     summary, rows = [], {}
     for sub in subs:
@@ -102,7 +105,7 @@ def compose(run: Run, a, setup: dict, items: list[dict], subs: list[Run]) -> dic
         row = {"metric": k, "field": outs[k]["field"], "rounds": st["round"], "best": best[k]}
         for label, x in (("alone v0", alone("v0")), ("alone best", alone(best[k])), ("together v0", together["baseline"][k]),
                          ("together final", together["final"][k])):
-            row.update({f"{label} · {n}": v for n, v in x.items() if n != "n"})
+            row.update({f"{label} · {n}": v for n, v in x.items() if n not in ("n", "exact")})
         summary.append(row)
     sc = {n: run.read(f"composed/{n}/scores.json") for n in together}
     for it in items:
@@ -113,7 +116,7 @@ def compose(run: Run, a, setup: dict, items: list[dict], subs: list[Run]) -> dic
     run.write("composed.json", {"best": best, "together": together, "prompt_sha": scored_with})
     fin = run.read("composed/final/scores.json")
     excel.write(run.dir / "results.xlsx", {
-        "Results": excel.results_rows(items, run.read("composed/final/outputs.json", {}), setup),
+        "Results": excel.results_rows(items, run.read("composed/final/outputs.json", {}), setup, read_sheet(Path(a.sheet), a.sheet_name)),
         "Agreement": excel.agreement_rows([(outs[k]["field"], M.agreement(M.item_errors(fin[k], refs[k], outs[k]["type"]), outs[k]["type"]))
                                            for k in outs]),
         "Metrics": summary, "Items": list(rows.values())})
@@ -121,4 +124,5 @@ def compose(run: Run, a, setup: dict, items: list[dict], subs: list[Run]) -> dic
         line = f"{k}: together v0 {numbers(together['baseline'][k], outs[k])} → final {numbers(together['final'][k], outs[k])}"
         debug(run, "=== COMPOSED " + line)
         print("COMPOSED " + line, flush=True)
+    events.emit(run.dir, "composed", metrics={k: {"before": together["baseline"][k], "after": together["final"][k]} for k in outs})
     return together

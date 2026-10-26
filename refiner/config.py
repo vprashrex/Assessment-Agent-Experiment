@@ -20,7 +20,7 @@ class RunConfig:
     run        run folder; rerunning with the same folder resumes
     schema     optional output schema (JSON file)
     docs_dir   folder of downloaded files for links that cannot be fetched (matched by name)
-    model      parser, judge and generator; `scorer` defaults to it
+    model      default model for every agent; `parser_model`, `judge_model`, `generator_model` and `scorer` override it
     effort     reasoning effort for every model and provider: low | medium | high
     rounds     ceiling on rounds; `patience` stops after that many rejected rounds in a row; `target` stops at that MAE
     n          use only the first n items
@@ -35,6 +35,9 @@ class RunConfig:
     model: str = DEFAULT_MODEL
     effort: str = "high"
     scorer: str | None = None
+    parser_model: str | None = None
+    judge_model: str | None = None
+    generator_model: str | None = None
     rounds: int = 8
     patience: int = 4
     target: float | None = None
@@ -44,12 +47,20 @@ class RunConfig:
 
     def __post_init__(self) -> None:
         self.scorer = self.scorer or self.model
+        self.parser_model = self.parser_model or self.model
+        self.judge_model = self.judge_model or self.model
+        self.generator_model = self.generator_model or self.model
         missing = [f"{k}: {v}" for k, v in (("sheet", self.sheet), ("context", self.context), ("prompt", self.prompt),
                                              ("schema", self.schema), ("docs_dir", self.docs_dir)) if v and not Path(v).exists()]
         if missing:
             raise FileNotFoundError("Not found — " + "; ".join(missing))
         if self.effort not in EFFORTS:
             raise ValueError(f"effort must be one of {', '.join(EFFORTS)}")
+
+    def run_models(self) -> dict[str, str]:
+        """The models and effort a refinement runs with; locked once it starts (see api.lock_models)."""
+        return {"parser": self.parser_model, "judge": self.judge_model, "generator": self.generator_model,
+                "scorer": self.scorer, "effort": self.effort}
 
     def args(self) -> list[str]:
         """The same run as command-line arguments for `python -m refiner`."""

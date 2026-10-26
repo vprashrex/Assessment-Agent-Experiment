@@ -18,15 +18,17 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "pillow>=10",
     "fastmcp>=4.1",
-    "langfuse>=4.17",
+    "google-genai>=2.30",
+    "pyyaml>=6.0",
 ]
 
 [project.scripts]
 refiner = "refiner.__main__:main"
-refiner-mcp = "refiner.mcp_server:main"
+refiner-mcp = "refiner.mcp.server:main"
+refiner-server = "refiner.mcp.server:serve"
 
 [tool.setuptools]
-packages = ["refiner"]
+packages = ["refiner", "refiner.agents", "refiner.agents.providers", "refiner.engine", "refiner.mcp", "refiner.prompts", "refiner.utils"]
 
 [tool.setuptools.package-data]
-refiner = ["prompts/*.md"]
+"refiner.prompts" = ["*.md", "**/*.md"]

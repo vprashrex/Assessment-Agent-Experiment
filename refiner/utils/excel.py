@@ -1,7 +1,8 @@
-"""Excel views of a run. Pure formatting: every number here was already computed by math_tool.
+"""Spreadsheets: reading the uploaded sheet, and the Excel views of a run. Pure formatting: every number here was
+already computed by math_tool.
 
 versions/vN/result.xlsx   one version: Metrics, Items (output, error, judge notes), Prompt (layer by layer), Change
-results.xlsx              the whole run: Results (inputs + the final prompt's full output, one column per key),
+results.xlsx              the whole run: Results (every original sheet column + the final prompt's full output),
                           Agreement, then Versions, Rounds, Items, Checklist, Judge notes, Edits, Locked flags
 """
 
@@ -19,6 +20,31 @@ def _clean(v: Any) -> Any:
     if isinstance(v, (list, tuple)):
         v = ", ".join(map(str, v))
     return v[:MAX_CELL] if isinstance(v, str) else v
+
+
+def read_sheet(path: Path, sheet: str | None = None) -> pd.DataFrame:
+    """The named sheet (or a CSV file), else the fullest one; empty rows/columns and 'Unnamed' columns dropped;
+    hyperlinks resolved."""
+    if path.suffix.lower() == ".csv":
+        df = pd.read_csv(path)
+        df.columns = [str(c).strip() for c in df.columns]
+        df = df[[c for c in df.columns if not c.startswith("Unnamed")]].dropna(axis=1, how="all").dropna(axis=0, how="all")
+        return df.reset_index(drop=True)
+    xls = pd.ExcelFile(path)
+    name = sheet or max(xls.sheet_names, key=lambda s: xls.parse(s).count().sum())
+    df = xls.parse(name)
+    df.columns = [str(c).strip() for c in df.columns]
+    try:  # cells whose text is a label but whose hyperlink is the URL
+        import openpyxl
+        ws = openpyxl.load_workbook(path)[name]
+        for j, col in enumerate(df.columns, start=1):
+            links = [ws.cell(r, j).hyperlink.target if ws.cell(r, j).hyperlink else None for r in range(2, len(df) + 2)]
+            if any(links):
+                df[col] = [l or v for l, v in zip(links, df[col])]
+    except Exception:
+        pass
+    df = df[[c for c in df.columns if not c.startswith("Unnamed")]].dropna(axis=1, how="all").dropna(axis=0, how="all")
+    return df.reset_index(drop=True)
 
 
 def write(path: Path, sheets: dict[str, list[dict]]) -> None:
@@ -43,8 +69,18 @@ def flatten(answer: dict, prefix: str = "") -> dict[str, Any]:
     return out
 
 
-def results_rows(items: list[dict], answers: dict[str, dict], setup: dict) -> list[dict]:
-    """One row per item: its id and input columns as they are in the sheet, then every key of the scorer's answer."""
+def results_rows(items: list[dict], answers: dict[str, dict], setup: dict, sheet: pd.DataFrame | None = None) -> list[dict]:
+    """One row per item: every column of the original sheet as it was (or, without the sheet, the id and input columns),
+    then every key of the scorer's answer. Rows are matched to the sheet by id, the same way items are built."""
+    if sheet is not None:
+        idc = setup.get("id_column")
+        by_id = {(str(r[idc]).strip() if idc and pd.notna(r[idc]) else f"row{i}"): r for i, r in sheet.iterrows()}
+        out = []
+        for it in items:
+            r = by_id.get(it["id"])
+            original = {c: ("" if pd.isna(r[c]) else r[c]) for c in sheet.columns} if r is not None else {}
+            out.append({**original, **flatten(answers.get(it["id"], {}))})
+        return out
     cols = [c for c in [setup.get("id_column"), *(x["name"] for x in setup["input_columns"])] if c]
     return [{**{c: it.get("fields", {}).get(c, it["id"] if c == setup.get("id_column") else "") for c in cols},
              **flatten(answers.get(it["id"], {}))} for it in items]

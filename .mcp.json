@@ -2,7 +2,7 @@
   "mcpServers": {
     "rubric-refiner": {
       "command": "uv",
-      "args": ["run", "fastmcp", "run", "refiner/mcp_server.py:mcp"]
+      "args": ["run", "fastmcp", "run", "refiner/mcp/server.py:mcp"]
     }
   }
 }

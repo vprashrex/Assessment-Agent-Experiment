@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 
-from . import api, tracing
+from . import api
+from .engine import events
 from .config import DEFAULT_MODEL, EFFORTS, RunConfig
-from .loop import NeedsAnswers
+from .engine.loop import NeedsAnswers
 
 
 def main() -> None:
@@ -26,6 +28,9 @@ def main() -> None:
     p.add_argument("--model", default=DEFAULT_MODEL, help="parser, judge and generator")
     p.add_argument("--effort", default="high", choices=EFFORTS, help="reasoning effort for every model")
     p.add_argument("--scorer", default=None, help="scoring model; defaults to --model")
+    p.add_argument("--parser-model", default=None, help="parser model; defaults to --model")
+    p.add_argument("--judge-model", default=None, help="judge model; defaults to --model")
+    p.add_argument("--generator-model", default=None, help="generator model; defaults to --model")
     p.add_argument("--rounds", type=int, default=8)
     p.add_argument("--patience", type=int, default=4, help="stop after this many rejected rounds in a row")
     p.add_argument("--target", type=float, default=None, help="stop when MAE (or miss rate) reaches this")
@@ -35,15 +40,26 @@ def main() -> None:
     a = vars(p.parse_args())
     only_prepare = a.pop("prepare")
     cfg = RunConfig(**a)
+    task = "prepare" if only_prepare else "refine"
+    run_dir = Path(cfg.run)
+    events.emit(run_dir, "run.started", task=task, effort=cfg.effort,
+                models={"parser": cfg.parser_model, "judge": cfg.judge_model, "generator": cfg.generator_model, "scorer": cfg.scorer})
     try:
         if only_prepare:
-            print(json.dumps(api.prepare(cfg), indent=1, ensure_ascii=False))
+            res = api.prepare(cfg)  # emits setup.ready or setup.questions
+            print(json.dumps(res, indent=1, ensure_ascii=False))
+            events.emit(run_dir, "run.done", task=task, ready=res["ready"])
             return
-        api.refine(cfg)
+        api.lock_models(cfg)
+        best = api.refine(cfg)
+        events.emit(run_dir, "run.done", task=task, best=best)
     except NeedsAnswers as e:
+        events.emit(run_dir, "setup.questions", questions=e.questions)
+        events.emit(run_dir, "run.done", task=task, ready=False)
         raise SystemExit(str(e))
-    finally:
-        tracing.flush()  # send the last observations before the process exits
+    except BaseException as e:
+        events.emit(run_dir, "run.failed", task=task, error=f"{type(e).__name__}: {e}"[:500])
+        raise
 
 
 if __name__ == "__main__":
