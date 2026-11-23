@@ -15,12 +15,14 @@ rubric-refiner/
 ├── refiner/             the Python package; every folder has a CLAUDE.md saying what each file does
 │   ├── agents/          parser, scorer, judge, generator; layers; math_tool.py; llm.py + models.py;
 │   │                    providers/ (anthropic, openai, gemini behind one complete())
-│   ├── engine/          items (sheet -> items), loop, fanout (+ composer), report, events
+│   ├── engine/          items (sheet -> items), split (train/test), loop, fanout (+ composer, polish, test pass), run,
+│   │                    report, events
 │   ├── mcp/             server.py (12 actions), routes.py (uploads, SSE, health, run files), inspect.py
 │   ├── prompts/         every prompt the refiner sends, nothing inline in code: system/, user.py, judge_tools.py, mcp.py
 │   ├── utils/           helpers with no refiner logic: excel, documents, downloads, files, process
-│   ├── api.py           public functions: prepare, refine, start, stop, status, checklist, version, list_runs
-│   ├── config.py        RunConfig, shared by the CLI, the API and the MCP server
+│   ├── api.py           public functions: prepare, refine, start, stop, status, checklist, version_report, rubric, report
+│   ├── config.py        RunConfig + DEFAULTS + HELP: the one source of options, defaults and help text for the CLI,
+│   │                    the API and the MCP server (the CLI builds its flags from it)
 │   └── paths.py         refiner-data/ layout and ROOT (the project folder)
 ├── z_assessment/       programme (NGO) data, one folder per programme: sheets, context, prompts, schemas,
 │                        docs/, delivered results (gitignored; never commit anything programme-specific)
@@ -32,15 +34,15 @@ rubric-refiner/
 ├── models.yaml          every model: provider, roles, effort options, pricing; served at GET /models for the UI
 ├── pyproject.toml, uv.lock
 ├── .mcp.json            the MCP server for Claude Code in this folder
-└── .env                 ANTHROPIC_API_KEY, OPENAI_API_KEY (never print or commit)
+└── .env                 ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY (never print or commit)
 ```
 
 ## Commands
 
 ```bash
 uv sync                                           # environment from uv.lock
-uv run refiner --sheet S.xlsx --context C.md --prompt v0.md --run runs/NAME [--schema out.json] \
-    [--docs-dir DIR] [--model gpt-6.1-sol] [--effort low|medium|high] [--n N] [--rounds 8]
+uv run refiner --sheet S.xlsx --prompt v0.md --run runs/NAME [--context C.md] [--schema out.json] \
+    [--docs-dir DIR] [--model M] [--effort low|medium|high] [--n N] [--rounds 8] [--split 80/20] [--seed 0]
 uv run refiner ... --prepare                      # setup only: columns, layers, attachments, questions
 uv run fastmcp run refiner/mcp/server.py:mcp      # the MCP server by hand (stdio)
 uv run refiner-server                             # HTTP on 127.0.0.1:8765, what Kaapi uses
@@ -59,12 +61,18 @@ Rerunning the same command resumes the run. A cheap smoke test is `--n 6 --round
   prompt text itself. Keep them generic and plain.
 - **The generator never sees reference values.** It gets the judge's diagnosis, the checklist and a per-item
   table with directions and error sizes only. The judge's prompt forbids leaking reference values.
-- **Only the metrics layer is ever edited.** Program, notes and output layers stay word for word. Code refuses
-  edits to locked text and asserts the locked layers are unchanged before a candidate is saved.
+- **Only the metrics and procedure layers are ever edited.** `metrics` per metric in its own loop; `procedure`
+  (shared scoring logic: gates, decision order, tie-breaks) as a whole, before the per-metric loops (fan-out) or in
+  the same loop (one metric). Program, notes and output stay word for word; code refuses edits to locked text and
+  asserts it unchanged before a candidate is saved.
 - **All maths is deterministic Python in `agents/math_tool.py`.** The judge measures through tool calls to the same
   functions the gate uses. The judge cannot change thresholds; tool schemas do not expose z or the ratio.
-- **No variance or consistency metrics.** The refiner targets agreement with the reference only: MAE, bias,
-  within ±1, within ±2.
+- **Agreement with the reference is the target**: MAE, bias, within ±1, within ±2, exact matches. Scatter and
+  the flip count between two passes are diagnostics (`volatility`, `diagnose`), never gate criteria.
+- **Train only, until the end.** The split (`engine/split.py`, `setup/split.json`, drawn once) decides which items
+  the loops may touch; scoring, judge notes, the checklist, the gate and the stop rules use train. Test items are
+  scored once when everything has stopped (`loop.score_test`, `fanout.test_pass`); `split.guard` refuses them
+  before that. Never look at or select on test numbers while tuning — by hand either.
 - **Issue statuses are measured by code** (`update_checklist` in `engine/loop.py`), never declared by the judge.
 - **MCP uses the `fastmcp` package** (not the raw `mcp` SDK). Dependencies via uv. Long-running tools start
   background processes and return at once; Claude Desktop times out on long calls.
@@ -76,7 +84,14 @@ Rerunning the same command resumes the run. A cheap smoke test is `--n 6 --round
 
 ## Key facts
 
-- Gate: a candidate is kept only if its MAE is strictly lower than the best's.
+- Gate (`loop.decide` → `math_tool.keep_candidate`): exact matches decide, measured twice — a first-pass winner
+  (more exact, or equal exact and lower MAE) is scored once more and the pooled numbers give the verdict; equal
+  accuracy and shorter is kept outright. No word limit or price: length is handled by the shrink loop. `--target`
+  is a stop rule (train MAE), not a gate criterion.
+- Split: `--split 80/20 --seed 0` by default, stratified by reference score; `100/0` = no holdout. Fixed at
+  preparation like `--n`; a resume with other values keeps the stored split (debug.txt says so). Reports carry
+  train numbers as `before/after` and the held-out numbers as `test` (`report.json` kpis, `api.status` rows,
+  `results.xlsx` Agreement/Items).
 - Pattern threshold T(n) = 2 · scatter / √n; a group is real if |mean error| > T(n). Volatile = |bias| ≤ T(N) and
   scatter / sd(reference) ≥ 0.75. Rewrite mode only when volatile and no issue is real.
 - Issue status, by code each round: first time real → new, else watch; active and real → open, else resolved;
@@ -86,8 +101,10 @@ Rerunning the same command resumes the run. A cheap smoke test is `--n 6 --round
   other models is refused (`api.lock_models`), so every version is scored by the same models. Only the UI's chat
   agent model can change mid-run.
 - Kept candidates get full judge notes; rejected ones only for the items they pushed further away.
-- Several metrics: each metric's loop sees only the locked layers and its own metrics chunks (tagged `metric`);
-  the composer is code, stitching each best section into the original layout, never a model rewriting text.
+- Several metrics: each metric's loop edits only its own metrics chunks; the other metrics' sections stay in its
+  prompt as locked `peer` chunks (the scorer reads the rubric as production serves it). The composer is code,
+  stitching each best section into the layout; the `polish` stage then tunes the weakest target against the whole
+  prompt's total exact matches (procedure every second round).
 
 ## When you change something
 
@@ -107,3 +124,7 @@ Rerunning the same command resumes the run. A cheap smoke test is `--n 6 --round
 - Use `paths.ROOT` for the project folder, never `Path(__file__).parents[N]`: modules sit at different depths.
 - Claude Desktop starts servers with a short PATH; its config uses the absolute path to `uv`.
 - Items store attachment paths relative to the project root (older runs) or absolute (newer runs); both resolve.
+- Run folders from before the split have no `setup/split.json`: every reader treats them as all-train, no test.
+- Git history: commits `cb27646`, `591c220`, `9cbe4c4`, `ec16b19`, `dfebfe9` (on `origin/feat/code-update`) carry
+  programme prompts and sheets from before the `z_assessment/` rule. HEAD is clean; the history has not been
+  rewritten (owner's call). Do not cherry-pick or revive files from those commits.

@@ -11,6 +11,6 @@ z_assessment/
 /*.csv
 /*.xlsx
 .claude/settings.local.json
+.claude/skills/
+skills-lock.json
 refiner-data/
-rubric-agent-storage/
-docs/
