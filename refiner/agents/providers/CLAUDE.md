@@ -12,10 +12,10 @@ JSON parsing, the required-keys check.
 | File | What it does |
 |---|---|
 | `__init__.py` | `PROVIDERS` (anthropic, openai, google) and `get(model)` |
-| `base.py` | what all share: `LLMError`, `Tools`, `Files`, `clean_schema` (drops schema keywords providers reject, keeps property names), `run_tool`, `b64`, and `client(kind)`, one lazily made SDK client per provider; loads `.env` |
+| `base.py` | what all share: `LLMError`, `Tools`, `Files`, `clean_schema` (drops schema keywords providers reject, keeps property names), `run_tool`, `b64`, and `client(kind)`, one lazily made SDK client per provider. API keys come from the environment; `refiner/paths.py` loads `.env` once |
 | `anthropic.py` | Claude: streamed, adaptive thinking at the run's effort, JSON-schema output, client tools, PDFs and images as blocks |
 | `openai.py` | GPT: Responses API, reasoning effort, JSON-schema output, function calls, PDFs and images as inputs |
-| `gemini.py` | Gemini: `response_json_schema`, thinking level, files as inline parts; no tools, so it is offered as the scorer only |
+| `gemini.py` | Gemini: `response_json_schema`, thinking level, files as inline parts; no tools, so `models.yaml` offers it as the scorer only |
 
 Adding a provider: a new module with `complete`, an entry in `PROVIDERS`, its models in `models.yaml`. Call SDK
-clients through `base.client(...)` so tests can swap them.
+clients through `base.client(...)`.

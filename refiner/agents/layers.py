@@ -12,13 +12,27 @@ import io
 from pathlib import Path
 from typing import Any
 
+from .. import prompts
 from ..paths import ROOT
+from ..utils.files import MIME as MEDIA  # the attachment types every agent sends
 
-LAYERS = ["program", "metrics", "notes", "output"]
-EDITABLE = "metrics"
-MEDIA = {".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
-         ".webp": "image/webp"}
+LAYERS = ["program", "metrics", "procedure", "notes", "output"]
+EDITABLE = "metrics"          # the per-metric layer; each fan-out loop edits only its own chunks
+PROCEDURE = "procedure"       # shared scoring logic (gates, tie-breaks); tuned once for all metrics, never per metric
 MAX_IMAGE = 4_500_000
+
+
+def kind_of(setup: dict, out: dict) -> str:
+    """How errors are measured for an output: 'verdict' in feedback mode (references are reviewers' verdicts),
+    else the output's type ('number' | 'enum')."""
+    return "verdict" if setup.get("feedback") else out["type"]
+
+
+def refs_by(items: list[dict], outs: dict[str, dict], ids=None) -> dict[str, dict]:
+    """metric key -> {item id -> reference value}, for the items in `ids` (all when None)."""
+    keep = None if ids is None else set(ids)
+    return {k: {it["id"]: v for it in items if (keep is None or it["id"] in keep)
+                and (v := reference(it["truths"].get(k), outs[k])) is not None} for k in outs}
 
 
 def numbered(text: str) -> str:
@@ -50,19 +64,24 @@ def layout(text: str, spans: list[dict]) -> tuple[list[dict], list[str]]:
     return chunks, problems
 
 
+def editable_words(chunks: list[dict], editable: tuple[str, ...] = (EDITABLE,)) -> int:
+    """Words in the parts a loop may change (shown to the generator, used in the gate's tie-break)."""
+    return sum(len(c["text"].split()) for c in chunks if c["layer"] in editable)
+
+
 def assemble(chunks: list[dict]) -> str:
     return "".join(c["text"] for c in chunks)
 
 
-def annotated(chunks: list[dict]) -> str:
+def annotated(chunks: list[dict], editable: tuple[str, ...] = (EDITABLE,)) -> str:
     """The prompt as the agents see it: every chunk marked LOCKED or EDITABLE with its layer."""
     out, k = [], 0
     for c in chunks:
-        if c["layer"] == EDITABLE:
+        if c["layer"] in editable:
             k += 1
-            out.append(f"[EDITABLE · {c['layer']} · part {k}]\n{c['text'].rstrip()}\n[/EDITABLE]")
+            out.append(prompts.render("marker_editable", layer=c["layer"], k=k, text=c["text"].rstrip()))
         else:
-            out.append(f"[LOCKED · {c['layer']}]\n{c['text'].rstrip()}\n[/LOCKED]")
+            out.append(prompts.render("marker_locked", layer=c["layer"], text=c["text"].rstrip()))
     return "\n".join(out) + "\n"
 
 
@@ -79,7 +98,14 @@ def label(v: Any, values: list[str]) -> str | None:
 def reference(v: Any, out: dict) -> Any:
     if v is None or (isinstance(v, float) and v != v):
         return None
-    return label(v, out["values"]) if out["type"] == "enum" else float(v)
+    if isinstance(v, dict):  # feedback mode: a verdict constraint rides through untouched
+        return v
+    if out["type"] == "enum":
+        return label(v, out["values"])
+    try:
+        return float(v)
+    except (TypeError, ValueError):  # a stray label in a score column (a repeated header row) is no reference
+        return None
 
 
 def files_of(item: dict) -> list[tuple[str, bytes]]:

@@ -1,5 +1,5 @@
 """What every provider shares: the error type, the tool and file types, schema cleaning, running a tool, and one
-lazily created SDK client per provider. API keys come from .env (project root) or the environment."""
+lazily created SDK client per provider. API keys come from .env (project root, loaded by paths.py) or the environment."""
 
 from __future__ import annotations
 
@@ -9,12 +9,7 @@ import os
 import threading
 from typing import Any, Callable
 
-from dotenv import load_dotenv
-
-from ...paths import ROOT
-
-load_dotenv(ROOT / ".env")
-load_dotenv()  # and from the current directory
+from ... import paths  # noqa: F401  importing paths loads .env from the project root
 
 MAX_TOOL_TURNS = 10
 _LOCK = threading.Lock()

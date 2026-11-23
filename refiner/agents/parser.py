@@ -21,6 +21,9 @@ SETUP_SCHEMA = {
         "metrics": {"type": "array", "items": {"type": "object", "properties": {
             "key": {"type": "string"},
             "truth_column": {"type": "string"},
+            "verdict_column": {"type": ["string", "null"]},
+            "remarks_column": {"type": ["string", "null"]},
+            "rationale_column": {"type": ["string", "null"]},
             "output": {"type": "object", "properties": {
                 "field": {"type": "string"}, "type": {"type": "string", "enum": ["number", "enum"]},
                 "min": {"type": ["number", "null"]}, "max": {"type": ["number", "null"]},
@@ -48,7 +51,7 @@ def profile(df: pd.DataFrame) -> list[dict[str, Any]]:
 
 
 def parse(df: pd.DataFrame, context: str, rubric: str, schema: dict | None, model: str, effort: str) -> dict:
-    user = prompts.render("parser", context=context, rubric=numbered(rubric),
+    user = prompts.render("parser", context=context.strip() or prompts.USER["parser_no_notes"], rubric=numbered(rubric),
                           schema=json.dumps(schema) if schema else "(none)",
                           columns=json.dumps(profile(df), ensure_ascii=False, indent=1))
     setup = llm.call(model, prompts.system("parser"), user, SETUP_SCHEMA, effort=effort)
@@ -61,6 +64,11 @@ def parse(df: pd.DataFrame, context: str, rubric: str, schema: dict | None, mode
             sp["metric"] = keys[0]
     cols = set(df.columns)
     bad = [c["name"] for c in setup["input_columns"] if c["name"] not in cols] + [m["truth_column"] for m in ms if m["truth_column"] not in cols]
+    bad += [m[k] for m in ms for k in ("verdict_column", "remarks_column", "rationale_column") if m.get(k) and m[k] not in cols]
+    # feedback mode: the operator reviewed an assessment's own scores (agree / too high / too low) instead of scoring
+    setup["feedback"] = all(m.get("verdict_column") for m in ms)
+    if any(m.get("verdict_column") for m in ms) and not setup["feedback"]:
+        q.append("Some metrics have a verdict column and some do not; feedback mode needs one per metric.")
     if bad:
         q.append(f"Columns {bad} do not exist; the sheet has {sorted(cols)}.")
     chunks, problems = layout(rubric, setup["layers"])

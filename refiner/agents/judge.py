@@ -4,10 +4,12 @@ math_tool through tool calls. It never sees or changes thresholds."""
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
+from typing import Any, Callable
 
 from .. import prompts
+from ..prompts.judge_tools import JUDGE_TOOLS
 from . import llm
+from . import math_tool as M
 from .layers import files_of
 
 ITEM_SCHEMA = {"type": "object", "properties": {
@@ -39,9 +41,23 @@ SUMMARY_SCHEMA = {"type": "object", "properties": {
 
 
 def _gap(pred: Any, truth: Any, out: dict) -> str:  # display only
+    if isinstance(truth, dict):  # feedback mode: a verdict constraint, not a score
+        old, v = truth.get("old"), truth.get("verdict")
+        ok = (v == "agree" and float(pred) == float(old)) or (v == "too_high" and float(pred) < float(old)) \
+             or (v == "too_low" and float(pred) > float(old))
+        return "verdict satisfied" if ok else "verdict not satisfied"
     if out["type"] == "enum":
         return "match" if pred == truth else "mismatch"
     return f"{float(pred) - float(truth):+g}"
+
+
+def _ref_text(truth: Any) -> Any:  # display only
+    if isinstance(truth, dict):
+        v = {"agree": "the score was right", "too_high": "the score was too high",
+             "too_low": "the score was too low"}.get(truth.get("verdict"), truth.get("verdict"))
+        return prompts.render("judge_verdict_reference", old=f"{truth.get('old'):g}", verdict=v,
+                              remark=prompts.render("judge_verdict_remark", remark=truth["remark"]) if truth.get("remark") else "")
+    return truth
 
 
 def review(rubric: str, items: list[dict], preds: dict, truths: dict, out: dict, model: str, effort: str,
@@ -49,13 +65,14 @@ def review(rubric: str, items: list[dict], preds: dict, truths: dict, out: dict,
     """One judge call per item with an output; returns id -> {observations, model_reasoning, direction, clause, comment}."""
     def one(it: dict) -> tuple[str, dict]:
         p, t = preds.get(it["id"]), truths.get(it["id"])
-        user = prompts.render("judge_item", rubric=rubric, submission=it["input"][:30000], output=p, reference=t,
-                              error=_gap(p, t, out))
+        user = prompts.render("judge_item", rubric=rubric, submission=it["input"][:30000], output=p,
+                              reference=_ref_text(t), error=_gap(p, t, out),
+                              rationale=it.get("rationale") or prompts.USER["judge_no_rationale"])
         try:
             return it["id"], llm.call(model, prompts.system("judge"), user, ITEM_SCHEMA, effort=effort, files=files_of(it))
         except llm.LLMError as e:
             return it["id"], {"observations": "", "model_reasoning": "", "direction": "aligned", "clause": "none",
-                              "comment": f"(review unavailable: {e})"}
+                              "comment": prompts.render("judge_review_unavailable", error=e)}
 
     todo = [it for it in items if preds.get(it["id"]) is not None and truths.get(it["id"]) is not None]
     with ThreadPoolExecutor(workers) as ex:
@@ -79,26 +96,56 @@ def table(reviews: dict[str, dict], errs: dict[str, float], out: dict, after: di
 def checklist_text(issues: dict[str, dict]) -> str:
     """The issue checklist as the judge and the author read it; status and numbers are measured by code."""
     if not issues:
-        return "(empty — first round)"
+        return prompts.render("checklist_empty")
     out = []
     for k, x in issues.items():
         h = x["history"][-1]
-        trail = " → ".join(f"r{e['round']} {e['status']}" for e in x["history"])
-        out.append(f"[{k}] {x['status'].upper()} · {x['title']} ({x['direction']}, {len(x['items'])} items: {', '.join(x['items'])})\n"
-                   f"   root cause: {x['root_cause']}\n   clause: {' '.join(x['clause'].split())[:200]}\n   fix: {x['fix']}\n"
-                   f"   measured on {h['version']}: mean error {h['mean_error']:+.2f} vs threshold {h['threshold']:.2f} · history: {trail}")
+        out.append(prompts.render("checklist_entry", id=k, status=x["status"].upper(), title=x["title"], direction=x["direction"],
+                                  n=len(x["items"]), items=", ".join(x["items"]), root_cause=x["root_cause"],
+                                  clause=" ".join(x["clause"].split())[:200], fix=x["fix"], version=h["version"],
+                                  mean_error=f"{h['mean_error']:+.2f}", threshold=f"{h['threshold']:.2f}",
+                                  history=" → ".join(f"r{e['round']} {e['status']}" for e in x["history"])))
     return "\n".join(out)
 
 
 def summarise(rubric: str, version: str, versions: list[str], reviews: dict, errs: dict, out: dict, change: str, dialogue: str,
               checklist: dict[str, dict], tools: llm.Tools, tool_log: list, model: str, effort: str) -> dict:
-    notes = [f"[{i}] {r['direction']} ({_size(errs.get(i), out)})\n   observations: {r.get('observations', '')}\n"
-             f"   model reasoning: {r.get('model_reasoning', '')}\n   clause: {r['clause'][:200]}\n   comment: {r['comment']}"
+    notes = [prompts.render("judge_note", id=i, direction=r["direction"], size=_size(errs.get(i), out), observations=r.get("observations", ""),
+                            model_reasoning=r.get("model_reasoning", ""), clause=r["clause"][:200], comment=r["comment"])
              for i, r in sorted(reviews.items())]
     user = prompts.render("judge_summary", version=version, rubric=rubric, versions=versions,
                           checklist=checklist_text(checklist), change=change, notes="\n".join(notes),
                           dialogue=dialogue[-20000:] or "(none)")
     return llm.call(model, prompts.system("judge"), user, SUMMARY_SCHEMA, effort=effort, tools=tools, tool_log=tool_log)
+
+
+def tools(E: Callable[[str], dict], refs: dict, kind: str) -> llm.Tools:
+    """The judge's measuring tools, bound to one loop: `E(version)` gives that version's errors (item id -> error,
+    or pair id in the shared stages), `refs` the matching references. Descriptions live in prompts/judge_tools.py;
+    the schemas expose neither z nor the ratio."""
+    ids = {"type": "array", "items": {"type": "string"}}
+    ver = {"type": "string"}
+    J = JUDGE_TOOLS.__getitem__
+    return {
+        "alignment": (J("alignment"), {"type": "object", "properties": {"version": ver, "ids": ids}, "required": ["version"]},
+                      lambda version, ids=None: M.alignment(E(version), ids, kind)),
+        "item_errors": (J("item_errors"), {"type": "object", "properties": {"version": ver, "ids": ids}, "required": ["version"]},
+                        lambda version, ids=None: {i: x for i, x in E(version).items() if not ids or i in ids}),
+        "compare": (J("compare"), {"type": "object", "properties": {"old": ver, "new": ver}, "required": ["old", "new"]},
+                    lambda old, new: M.compare(E(old), E(new))),
+        "pattern_check": (J("pattern_check"), {"type": "object", "properties": {"version": ver, "ids": ids}, "required": ["version", "ids"]},
+                          lambda version, ids: M.pattern_check(E(version), ids)),
+        "volatility": (J("volatility"), {"type": "object", "properties": {"version": ver}, "required": ["version"]},
+                       lambda version: M.volatility(E(version), refs)),
+    }
+
+
+def synthetic_reviews(errs: dict[str, float]) -> dict[str, dict]:
+    """Review rows from the numbers alone, for the shared stages that run no per-item judge: every missed pair
+    (`<metric>:<item>`) with its direction and size."""
+    return {pid: {"direction": "too_high" if e > 0 else "too_low", "observations": "", "model_reasoning": "",
+                  "clause": "", "comment": prompts.render("synthetic_review", metric=pid.split(":", 1)[0], size=f"{abs(e):g}")}
+            for pid, e in sorted(errs.items()) if e}
 
 
 def _size(e: float | None, out: dict) -> str:
