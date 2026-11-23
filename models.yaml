@@ -32,7 +32,7 @@ models:
       default: medium
       options: [low, medium, high, xhigh, max]
       description: Reasoning depth with adaptive thinking. Higher = better but slower/costlier.
-    max_output_tokens: {type: int, min: 1, max: 128000, default: 16000, description: 'Max tokens in the response, thinking included.'}
+    max_output_tokens: {type: int, min: 1, max: 128000, default: 64000, description: 'Max tokens in the response, thinking included.'}
   input_modalities: [TEXT, IMAGE, PDF]
   output_modalities: [TEXT]
   pricing:
@@ -885,6 +885,22 @@ models:
       options: [word, character, none]
       description: Timestamp precision in the transcript.
   input_modalities: [AUDIO]
+  output_modalities: [TEXT]
+  pricing: null
+  is_active: true
+- provider: google
+  model_name: gemini-4-argon
+  label: Gemini 4 Argon
+  completion_type: [text]
+  roles: [generator, scorer]
+  tools: false
+  config:
+    thinking_level:
+      type: enum
+      default: high
+      options: [minimal, low, medium, high]
+      description: Max reasoning depth before output. high = best quality, low = faster/cheaper.
+  input_modalities: [TEXT, IMAGE, PDF]
   output_modalities: [TEXT]
   pricing: null
   is_active: true

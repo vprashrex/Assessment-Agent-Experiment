@@ -5,12 +5,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import mimetypes
 import time
 from datetime import datetime, timezone
+from pathlib import Path
 
 from fastmcp import FastMCP
 from starlette.requests import Request
-from starlette.responses import JSONResponse, PlainTextResponse, Response, StreamingResponse
+from starlette.responses import FileResponse, JSONResponse, PlainTextResponse, Response, StreamingResponse
 
 from refiner import api, paths
 from refiner.agents import models
@@ -122,6 +124,16 @@ async def upload_inputs(request: Request) -> Response:
             name = paths.save_input(chat_id, f.filename or "file", data, folder)
             saved.append({"name": name, "size": len(data), "opening": inspect.opening(paths.inputs_dir(chat_id) / name)})
     return JSONResponse({"files": saved})
+
+
+@route("/chats/{chat_id}/inputs/{name:path}", methods=["GET"])
+@_guard
+async def read_input(request: Request) -> Response:
+    """One uploaded file as it was uploaded, for previewing it in the chat."""
+    p = paths.input_file(_chat_id(request), request.path_params["name"])
+    if not p or Path(p).is_dir():
+        raise FileNotFoundError("not a file")
+    return FileResponse(p, media_type=mimetypes.guess_type(p)[0] or "application/octet-stream")
 
 
 @route("/chats/{chat_id}", methods=["DELETE"])

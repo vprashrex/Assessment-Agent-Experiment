@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from refiner import paths
+from refiner.utils.files import IMAGE_MIME
 
 
 def inputs(chat_id: str) -> dict:
@@ -48,7 +49,7 @@ def peek(p: Path) -> dict:
                 return {**out, "kind": "pdf", "pages": len(r.pages), "content": text[:4000]}
             except Exception:
                 return {**out, "kind": "pdf"}
-        if ext in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+        if ext in IMAGE_MIME:
             return {**out, "kind": "image"}
         text = p.read_text(errors="ignore")
         return {**out, "kind": "text", "content": text[:6000], "truncated": len(text) > 6000}

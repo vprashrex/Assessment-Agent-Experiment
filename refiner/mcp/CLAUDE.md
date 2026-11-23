@@ -6,7 +6,7 @@ the same actions over stdio for Claude Desktop / Claude Code.
 | File | What it does |
 |---|---|
 | `server.py` | the FastMCP instance and the 12 actions the Chat Agent calls (list_inputs, inspect_inputs, add_context_note, prepare_run, start_run, run_status, stop_run, get_checklist, get_version_report, get_rubric, get_report, get_final_prompt); `main` (stdio) and `serve` (HTTP); registers the routes |
-| `routes.py` | plain HTTP routes for the Kaapi control plane and the database heartbeat: uploads (`POST /chats/<id>/inputs`), delete, run events (`/events/<id>`, SSE), `/health/<id>`, run files (`/runs/<id>/…`), the model catalog (`/models`) |
+| `routes.py` | plain HTTP routes for the Kaapi control plane and the database heartbeat: uploads (`POST /chats/<id>/inputs`, one file back for preview: `GET /chats/<id>/inputs/<name>`), delete, run events (`/events/<id>`, SSE), `/health/<id>`, run files (`/runs/<id>/…`), the model catalog (`/models`) |
 | `inspect.py` | a chat's uploads: the file list, a content-based preview of each file, a file's opening lines for naming the chat |
 
 Rules:

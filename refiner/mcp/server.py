@@ -18,16 +18,17 @@ from pathlib import Path
 from fastmcp import FastMCP
 
 from refiner import api, paths  # absolute imports: `fastmcp run` loads this file by path
-from refiner.config import DEFAULT_MODEL, RunConfig
+from refiner.config import DEFAULTS, RunConfig
 from refiner.mcp import inspect, routes
 from refiner.prompts import mcp as mcp_prompts
 
 mcp = FastMCP("rubric-agent", instructions=mcp_prompts.INSTRUCTIONS)
+CONTEXT_FILE = "context.md"  # where answers go when the user uploaded no context notes
 
 READ = {"readOnlyHint": True, "idempotentHint": True, "openWorldHint": False}
 
 
-def _cfg(chat_id: str, sheet: str, context: str, prompt: str, schema: str | None, docs_dir: str | None, **kw) -> RunConfig:
+def _cfg(chat_id: str, sheet: str, context: str | None, prompt: str, schema: str | None, docs_dir: str | None, **kw) -> RunConfig:
     f = lambda name: paths.input_file(chat_id, name)  # noqa: E731
     return RunConfig(sheet=f(sheet), context=f(context), prompt=f(prompt), schema=f(schema), docs_dir=f(docs_dir),
                      run=str(paths.run_dir(chat_id)), **{k: v for k, v in kw.items() if v is not None})
@@ -47,35 +48,42 @@ def inspect_inputs(chat_id: str) -> dict:
 
 
 @mcp.tool(annotations={"destructiveHint": False, "openWorldHint": False}, description=mcp_prompts.TOOLS["add_context_note"])
-def add_context_note(chat_id: str, context: str, note: str) -> str:
+def add_context_note(chat_id: str, note: str, context: str | None = None) -> str:
     note = note.strip()
     if not note:
         raise ValueError("The note is empty.")
-    file = Path(paths.input_file(chat_id, context) or "")
-    if not file.is_file():
-        raise ValueError(f"No uploaded file named {context}.")
+    if context:
+        file = Path(paths.input_file(chat_id, context) or "")
+        if not file.is_file():
+            raise ValueError(f"No uploaded file named {context}.")
+    else:  # no context file yet: the answers start one in the chat's inputs
+        file = paths.inputs_dir(chat_id) / CONTEXT_FILE
+        file.parent.mkdir(parents=True, exist_ok=True)
     with file.open("a", encoding="utf-8") as f:
         f.write(f"\n\n## Answers\n{note}\n")
-    return "Added to the context notes."
+    return f"Added to the context notes in {file.name}; pass context={file.name!r} when preparing again."
 
 
 @mcp.tool(annotations={"openWorldHint": True}, description=mcp_prompts.TOOLS["prepare_run"])
-def prepare_run(chat_id: str, sheet: str, context: str, prompt: str, schema: str | None = None, docs_dir: str | None = None,
-                sheet_name: str | None = None, model: str = DEFAULT_MODEL, parser_model: str | None = None,
-                effort: str = "high", n: int | None = None) -> dict:
+def prepare_run(chat_id: str, sheet: str, prompt: str, context: str | None = None, schema: str | None = None, docs_dir: str | None = None,
+                sheet_name: str | None = None, model: str = DEFAULTS["model"], parser_model: str | None = None,
+                effort: str = DEFAULTS["effort"], n: int | None = None, split: str = DEFAULTS["split"],
+                seed: int = DEFAULTS["seed"]) -> dict:
     return api.start(_cfg(chat_id, sheet, context, prompt, schema, docs_dir, sheet_name=sheet_name, model=model,
-                          parser_model=parser_model, effort=effort, n=n), prepare_only=True)
+                          parser_model=parser_model, effort=effort, n=n, split=split, seed=seed), prepare_only=True)
 
 
 @mcp.tool(annotations={"openWorldHint": True}, description=mcp_prompts.TOOLS["start_run"])
-def start_run(chat_id: str, sheet: str, context: str, prompt: str, schema: str | None = None, docs_dir: str | None = None,
-              sheet_name: str | None = None, model: str = DEFAULT_MODEL, parser_model: str | None = None,
+def start_run(chat_id: str, sheet: str, prompt: str, context: str | None = None, schema: str | None = None, docs_dir: str | None = None,
+              sheet_name: str | None = None, model: str = DEFAULTS["model"], parser_model: str | None = None,
               judge_model: str | None = None, generator_model: str | None = None, scorer: str | None = None,
-              effort: str = "high", rounds: int = 8, patience: int = 4, target: float | None = None,
-              n: int | None = None) -> dict:
+              effort: str = DEFAULTS["effort"], scorer_effort: str | None = None, rounds: int = DEFAULTS["rounds"],
+              patience: int = DEFAULTS["patience"], target: float | None = None, n: int | None = None,
+              split: str = DEFAULTS["split"], seed: int = DEFAULTS["seed"]) -> dict:
     return api.start(_cfg(chat_id, sheet, context, prompt, schema, docs_dir, sheet_name=sheet_name, model=model,
                           parser_model=parser_model, judge_model=judge_model, generator_model=generator_model,
-                          scorer=scorer, effort=effort, rounds=rounds, patience=patience, target=target, n=n))
+                          scorer=scorer, effort=effort, scorer_effort=scorer_effort, rounds=rounds,
+                          patience=patience, target=target, n=n, split=split, seed=seed))
 
 
 @mcp.tool(annotations=READ, description=mcp_prompts.TOOLS["run_status"])
@@ -91,7 +99,7 @@ def stop_run(chat_id: str) -> dict:
 @mcp.tool(annotations=READ, description=mcp_prompts.TOOLS["get_checklist"])
 def get_checklist(chat_id: str, metric: str | None = None) -> dict:
     d = paths.run_dir(chat_id)
-    return api.checklist(str(d / "metrics" / metric if metric else d))
+    return api.checklist(str(api.metric_dir(str(d), metric)[0] if metric else d))
 
 
 @mcp.tool(annotations=READ, description=mcp_prompts.TOOLS["get_version_report"])
