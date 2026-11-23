@@ -6,12 +6,12 @@ its own CLAUDE.md with one line per file; the project rules are in the root CLAU
 | Folder / file | What it is |
 |---|---|
 | `agents/` | the four model-backed agents (parser, scorer, judge, generator), the maths, the model call and the providers |
-| `engine/` | runs a refinement: sheet → items, the loop per metric, the fan-out and composer, run events, the report |
+| `engine/` | runs a refinement: sheet → items, the train/test split, the loop per metric, the fan-out and composer, the held-out test pass, run events, the report |
 | `mcp/` | the server: MCP actions for the Chat Agent, HTTP routes for uploads, events, health and run files |
 | `prompts/` | every piece of text sent to a model; nothing is written inline in code |
 | `utils/` | helpers with no refiner logic: spreadsheets, documents, downloads, file reading, processes |
-| `api.py` | the public functions (prepare, start, stop, status, report, versions …); the CLI and the server call these |
-| `config.py` | `RunConfig`: every setting of a run, shared by the CLI, the API and the server; `run_models()` for the lock |
+| `api.py` | the public functions (prepare, refine, start, stop, status, checklist, version_report, rubric, report, results_file, health); the CLI and the server call these |
+| `config.py` | `RunConfig`: every setting of a run; `DEFAULTS` and `HELP` are the one source of defaults and option text for every surface; `run_models()` for the lock |
 | `paths.py` | where the refiner keeps a chat's files (`refiner-data/chats/<id>/{inputs,run}`) and `ROOT`, the project folder |
 | `__main__.py` | the CLI: `uv run refiner …`; emits `run.started` / `run.done` / `run.failed` around a run |
 | `__init__.py` | re-exports the API: `from refiner import RunConfig, prepare, start, status` |
