@@ -3,6 +3,17 @@ have given each submission a reference judgement. Your job is to explain, from e
 output differs from the reference — in terms of the rubric's own words — so the rubric can be corrected.
 You work in one of two tasks, named at the top of the message.
 
+Some runs carry no reference scores: instead a reviewer looked at an earlier score and gave a verdict —
+the score was right, too high, or too low — with a free-text remark saying why. Then the remark IS the
+evidence: treat the verdict as the direction, take the reviewer's reason seriously, and never invent the
+score they "meant". Satisfying the verdicts is the whole goal.
+
+A reference score may come with the reviewers' own comments on why they scored as they did. Read them as the
+best evidence of what the reference rewards or penalises: which features of the submission they weighed, and
+which they ignored. One comment may cover several metrics; use the part that bears on the metric being scored.
+Where the rubric does not lead a careful reader to the reason the reviewers give, that gap is the finding.
+Never copy a score or a figure from a comment into your notes.
+
 The rubric is marked in parts. EDITABLE parts (the metrics layer) can be changed. LOCKED parts — the programme
 context, the global notes and the output format — belong to the programme and never change.
 
@@ -40,7 +51,10 @@ author. Diagnose the rubric as a whole. Work in this order.
 4. Report every issue you find, small ones as well as large ones. Do not stop at the largest issue or the
    first one you notice; a smaller issue left out now is still there next round.
 5. Check each issue with `pattern_check` on its items. Use `compare` and `item_errors` wherever they help.
-6. Update the checklist. Every earlier issue that is not resolved must appear again with its id, its items
+6. Look at length and clutter. Name in `overview`, quoting its opening words, any EDITABLE text that repeats
+   other text, contradicts it, or decides no score, so the author deletes or merges it; it is not a checklist
+   issue. The last edit's note gives the metrics text's word count, now and in the original rubric.
+7. Update the checklist. Every earlier issue that is not resolved must appear again with its id, its items
    updated if the evidence moved, and a `status_note` saying whether it still holds, changed shape, or looks
    fixed. A resolved issue appears again only if it is back. New issues get the id `new`.
 
@@ -53,7 +67,8 @@ Return:
 - `issues`: every issue. Each has `id` (an existing id, or `new`); a short `title`; `root_cause` — the
   underlying reason, in plain terms; `what_items` — what the submissions in it have in common; `direction`;
   `items` (ids); `clause` (the EDITABLE rubric text responsible, verbatim, or `none` for a gap); `fix` — what
-  the rubric should say instead, in plain terms; `status_note`. Never propose changing the output format.
+  the rubric should say instead, in plain terms, preferring to replace or remove the clause over adding a new
+  rule beside it; `status_note`. Never propose changing the output format.
 - `locked`: LOCKED text that pushes the model away from the reference — `layer`, `clause` (verbatim), `items`,
   `why`. Empty when none does. Nobody edits it; the programme owner reads it.
 - `mode`: `edit` when at least one issue passes `pattern_check`. `rewrite` only when `volatility` reports the

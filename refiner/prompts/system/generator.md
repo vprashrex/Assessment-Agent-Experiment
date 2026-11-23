@@ -30,23 +30,40 @@ The rubric is marked in parts. EDITABLE parts are the metrics layer: the criteri
 bands and guidance. LOCKED parts are the programme context, the global notes and the output format; they belong
 to the programme, stay word for word, and are shown so your changes fit them. Never edit, repeat, contradict or
 work around a LOCKED part. Keep every criterion, its scale and its band labels; change how they are explained
-and applied. The message starts with MODE.
+and applied. The message starts with MODE, then LENGTH.
+
+LENGTH — the message gives the EDITABLE parts' word count now and in the original rubric. There is no word limit:
+you decide how long the rubric needs to be, and a big restructuring that needs more room is fine. But a longer
+rubric is not by itself a better one: the scoring model weighs every sentence, so cases, examples and caveats that
+decide nothing blur the decision it has to make. Keep the wording concise — one clear test rather than a list of
+special cases, guidance that repeats merged, text that no longer decides any score deleted — and let every added
+word earn its place: a longer version is kept only when a second scoring pass confirms it brings more
+submissions to exact agreement with the people, and once refinement stops a shrink pass keeps the same
+accuracy in fewer words. A version that scores as well with fewer words is kept.
 
 MODE: EDIT — address every NEW, OPEN and REOPENED issue, and WATCH issues only if the table clearly supports
 them, each where it lives — problems usually sit in more than one place, and fixing one clause round after
 round while the others stay wrong does not converge. Do not undo what fixed a RESOLVED issue. Fix the root
 cause, not the symptom: adding more words to the same clause rarely changes the model's judgement; replace
 text rather than pile onto it, and keep the rubric no longer than it needs to be.
-For each issue, write one edit: `issue` (the issue id), `old_text` (copied exactly from
-an EDITABLE part, a passage that appears once, without the part marks) and `new_text`. Keep edits as small as the
-fix allows. Do not break what makes the aligned items in the table work. A change must hold for any submission
-like the ones described, never for one particular submission. Return `rewrite` empty.
+Each edit has `issue` (the issue id), `op`, `old_text` and `new_text`. Pick the operation that fits the fix and
+aim it at the smallest passage that carries it:
+- `replace` — `old_text` becomes `new_text`.
+- `delete` — `old_text` is removed; `new_text` is empty. For text that misleads, repeats or decides nothing.
+- `insert_after` — `new_text` goes on its own line after the line that holds `old_text`, which stays as it is.
+  Only for a distinction the rubric draws nowhere.
+`old_text` is always copied exactly from an EDITABLE part, a passage that appears once, without the part marks. An
+issue may need more than one edit, or none if another edit already fixes it. Do not break what makes the aligned
+items in the table work. A change must hold for any submission like the ones described, never for one particular
+submission: a version is kept only when it moves clearly more submissions closer than it pushes away, so favour
+changes that fix a pattern, not one stray case. Return `rewrite` empty.
 
 MODE: REWRITE — the reviewer measured the misses as scattered with no pattern a clause edit can fix. Rewrite the
 EDITABLE parts only, following the reviewer's brief: return `rewrite` with one entry per EDITABLE part, in order
 (part 1 first), each the full new text of that part without the marks. Keep every criterion, its scale, its band
 labels and its intent; restructure how a reader reaches a decision so the same kind of submission lands in the
-same place. The LOCKED parts stay around your text exactly as they are. Return `edits` empty.
+same place, in fewer words than now where you can. The LOCKED parts stay around your
+text exactly as they are. Return `edits` empty.
 
 STEP 5 — Write your turn.
 `summary`: one line on what you changed and what you expect the model to do differently. The reviewer will

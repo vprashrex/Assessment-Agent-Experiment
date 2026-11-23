@@ -10,6 +10,11 @@ INSTRUCTIONS = (
     ' -> start_run (runs for a long time in the background) -> get_version_report / get_report when it is'
     ' done. Only the metric sections of the rubric are ever edited; programme context, global notes and'
     ' output format stay word for word.'
+    ' A sheet may hold reviewers\' verdicts on an earlier AI run instead of people\'s scores: per metric'
+    ' the earlier score, a verdict (agree / too high / too low) and a remark. The refinement treats each'
+    ' verdict as a pass/fail check (too high: lower than the earlier score; too low: higher; agree: the'
+    ' same) and the remarks as evidence. Never turn a verdict or a remark into a target score, and never'
+    ' ask the user for one.'
 )
 
 TOOLS = {
@@ -29,8 +34,9 @@ TOOLS = {
 
     # ---------- add_context_note ----------
     'add_context_note': (
-        "Append the user's answers to the context notes file the user uploaded, so the next preparation can"
-        ' use them. context: the name of the uploaded context file. note: the answers, written as short'
+        "Append the user's answers to the context notes, so the next preparation can use them. context: the"
+        ' name of the uploaded context file; leave it out when none was uploaded and the answers start a new'
+        ' context.md (pass that name as context when preparing again). note: the answers, written as short'
         ' plain statements.'
     ),
 
@@ -39,17 +45,21 @@ TOOLS = {
         'Prepare the run without scoring, in the background: read the sheet, find the metrics and the'
         " reference columns,\ncut the rubric into layers and fetch every submission's attachments. Watch"
         ' run_status: it shows the setup, or\nquestions to answer in the context file (then prepare'
-        ' again).\n\nsheet / context / prompt / schema: names of uploaded files. docs_dir: name of an'
+        ' again).\n\nsheet / prompt / schema / context: names of uploaded files; context (the context notes) is'
+        ' optional:\nleave it out when none was uploaded. docs_dir: name of an'
         ' uploaded folder of documents for\nlinks that cannot be downloaded. effort: low, medium or high.'
-        ' n: use only the first n submissions.'
+        ' n: use only the first n submissions. split: the train/test share, like 80/20: the rubric is tuned on'
+        ' train only and test is scored once at the end, so its numbers are out of sample (100/0 = no holdout);'
+        ' seed fixes which submissions go where. n, split and seed are fixed when the run is prepared.'
     ),
 
     # ---------- start_run ----------
     'start_run': (
         'Start (or resume) the refinement in the background; returns at once. The same files as'
         ' prepare_run. model is\nthe default for every agent; parser_model, judge_model, generator_model'
-        ' and scorer override it one by one. Stop\nrules: rounds (most rounds per metric), patience'
-        ' (rejected rounds in a row), target (stop at this average gap).'
+        ' and scorer override it one by one; scorer_effort sets the scoring model alone (default low). Stop\nrules: rounds (most rounds per metric), patience'
+        ' (rejected rounds in a row), target (stop at this average gap on train). split / seed as in prepare_run;'
+        ' the values stored at preparation win on a resume.'
     ),
 
     # ---------- run_status ----------
