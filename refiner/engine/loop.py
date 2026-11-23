@@ -1,38 +1,45 @@
 """The refinement loop. Every step writes to the run folder first, so a rerun resumes where it stopped.
 
 runs/<run>/
-  results.xlsx        Results (inputs + the best prompt's full output, one column per key), Agreement, then Versions,
-                      Rounds, Items, Checklist, Judge notes, Edits, Locked flags
+  results.xlsx        Results (inputs + the best prompt's full output, one column per key), Agreement (train, and
+                      test once scored), then Versions, Rounds, Items (with a split column), Checklist, Judge notes,
+                      Edits, Locked flags
   final_prompt.md     the best version's full prompt
   debug.txt           per round: numbers, the judge's overview, the checklist, locked flags, every tool call
-  setup/              setup.json, items.json, baseline/ (1_program 2_metrics 3_notes 4_output .md + layout.json)
+  setup/              setup.json, items.json, split.json (train/test ids, drawn once), baseline/ (1_program 2_metrics
+                      3_notes 4_output .md + layout.json)
   models.json         the models and effort the refinement started with; a resume must match them
-  versions/vN/        prompt.md, chunks.json, scores.json, outputs.json (the scorer's whole answers), notes.json (judge
-                      notes per submission), change.md, result.xlsx
+  versions/vN/        prompt.md, chunks.json, scores.json and outputs.json (train items; outputs = the scorer's whole
+                      answers), scores2.json (the gate's second pass), notes.json (judge notes per submission),
+                      change.md, result.xlsx; v0 and the best version also get scores_test.json / outputs_test.json,
+                      the one scoring of the held-out items once the loop has stopped
   checklist.json      the issue checklist; each issue's status is measured by code every round
   dialogue.md         the judge and the author, round by round
   state.json          for resuming
 
 Only the metrics layer is ever edited; every version keeps the program, notes and output layers word for word.
-With several metrics, `main` hands over to fanout.py: each metric's `refine` runs in its own metrics/<key>/ folder.
+Every number the loop uses — scores, judge notes, the checklist, the gate, the stop rules — comes from the train
+items; the test items are scored once at the end (`metric.test` event, `state.json` train/test).
+With several metrics, `run.main` hands over to fanout.py: each metric's `refine` runs in its own metrics/<key>/ folder.
 """
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
-from .. import agents
+from .. import agents, prompts
 from ..agents import math_tool as M
 from ..agents import reference
-from ..prompts.judge_tools import JUDGE_TOOLS
 from ..utils import excel
 from ..utils.excel import read_sheet
-from . import events, report
+from ..utils.files import read as read_file
+from . import events, split
 from .items import build_items
 
 ACTIVE = ("new", "open", "reopened")
+SHRINK_PASSES = 5  # most passes of the shrink loop once refinement stops; it usually fails before this
 
 
 class Run:
@@ -44,10 +51,7 @@ class Run:
         self.label, self.parent = label, parent
 
     def read(self, name: str, default: Any = None) -> Any:
-        p = self.dir / name
-        if not p.exists():
-            return default
-        return json.loads(p.read_text()) if p.suffix == ".json" else p.read_text()
+        return read_file(self.dir / name, default)
 
     def write(self, name: str, data: Any) -> None:
         p = self.dir / name
@@ -81,13 +85,15 @@ class NeedsAnswers(Exception):
         self.questions = questions
 
 
-def setup_event(setup: dict, items: list[dict], chunks: list[dict]) -> dict:
+def setup_event(setup: dict, items: list[dict], chunks: list[dict], sp: dict | None = None) -> dict:
     """The data of the setup.ready event: what the parser decided, in plain fields."""
+    sp = sp or {}
     return {"id_column": setup.get("id_column"), "inputs": setup.get("input_columns", []),
             "metrics": [{"key": m["key"], "reference": m["truth_column"], "field": m["output"]["field"], "type": m["output"]["type"],
                          "min": m["output"].get("min"), "max": m["output"].get("max"), "values": m["output"].get("values")}
                         for m in agents.metrics_of(setup)],
             "items": len(items), "items_with_files": sum(bool(it.get("files")) for it in items),
+            "split": {"spec": sp.get("spec"), "seed": sp.get("seed"), "train": len(sp.get("train", [])), "test": len(sp.get("test", []))},
             "layers": [{"layer": c["layer"], "metric": c.get("metric"), "lines": c["text"].count("\n"),
                         "starts": c["text"].strip().splitlines()[0][:100] if c["text"].strip() else ""} for c in chunks]}
 
@@ -95,17 +101,17 @@ def setup_event(setup: dict, items: list[dict], chunks: list[dict]) -> dict:
 def setup_run(run: Run, a) -> tuple[dict, list[dict]]:
     df = read_sheet(Path(a.sheet), a.sheet_name)
     v0 = Path(a.prompt).read_text()
-    todo = not all(run.read(f) for f in ("setup/setup.json", "setup/items.json", "setup/baseline/layout.json"))
+    todo = not all(run.read(f) for f in ("setup/setup.json", "setup/items.json", "setup/baseline/layout.json", split.FILE))
     setup, items = _setup(run, a, df, v0)
     if todo:
-        events.emit(run.dir, "setup.ready", **setup_event(setup, items, run.read("setup/baseline/layout.json")))
+        events.emit(run.dir, "setup.ready", **setup_event(setup, items, run.read("setup/baseline/layout.json"), run.read(split.FILE)))
     return setup, items
 
 
 def _setup(run: Run, a, df, v0: str) -> tuple[dict, list[dict]]:
     if not run.read("setup/setup.json"):
         schema = json.loads(Path(a.schema).read_text()) if a.schema else None
-        setup = agents.parse(df, Path(a.context).read_text(), v0, schema, a.parser_model, a.effort)
+        setup = agents.parse(df, Path(a.context).read_text() if a.context else "", v0, schema, a.parser_model, a.effort)
         setup["output_schema"] = schema  # what the scorer answers in, as in production
         if setup["questions"]:
             raise NeedsAnswers(setup["questions"])
@@ -116,6 +122,14 @@ def _setup(run: Run, a, df, v0: str) -> tuple[dict, list[dict]]:
         run.write("setup/items.json", items[: a.n] if a.n else items)
         for p in problems:
             debug(run, f"setup: {p}")
+    # the train/test split, drawn once; a resume keeps it even when --split or --seed differ
+    sp = run.read(split.FILE)
+    if sp is None:
+        sp = {"spec": a.split, "seed": a.seed, **split.make(run.read("setup/items.json"), a.split, a.seed)}
+        run.write(split.FILE, sp)
+        debug(run, f"setup: split {a.split} seed {a.seed} → {len(sp['train'])} train, {len(sp['test'])} test (held out)")
+    elif (sp.get("spec"), sp.get("seed")) != (a.split, a.seed):
+        debug(run, f"setup: split stays {sp.get('spec')} seed {sp.get('seed')} (stored at preparation; {a.split} / {a.seed} ignored)")
     if not run.read("setup/baseline/layout.json"):
         chunks, problems = agents.layout(v0, setup["layers"])
         if problems:
@@ -159,94 +173,165 @@ def update_checklist(checklist: dict, issues: list[dict], rnd: int, ver: str, er
                              "threshold": pc.get("threshold") or 0.0, "real": real, "status": status, "mentioned": k in mentioned})
 
 
-def main(a) -> dict:
-    """Set up, refine (one loop, or one per metric), then write report.json. Returns the best version per metric."""
-    run = Run(Path(a.run))
-    setup, items = setup_run(run, a)
-    if len(agents.metrics_of(setup)) > 1:
-        from . import fanout
-        best = fanout.main(run, a, setup, items)
-    else:
-        best = {agents.metrics_of(setup)[0]["key"]: refine(run, a, setup, items)}
-        report.write(run, a, setup, items)
-    return best
+def decide(exact_best: float, mae_best: float, first: dict, words_best: int, words_cand: int, mv: dict,
+           second: Callable[[], tuple[dict, dict]]) -> dict:
+    """The gate, measured twice (math_tool.keep_candidate): `first` is the candidate's alignment from one scoring
+    pass; a first-pass win only makes it borderline, then `second()` scores once more and returns (alignment,
+    compare) of that pass, and the pooled numbers (math_tool.pool) give the verdict. Used by the per-metric loop
+    and by both fan-out stages."""
+    gate = M.keep_candidate(exact_best, first.get("exact", 0), mae_best, first.get("mae", 1e9), words_best, words_cand,
+                            len(mv["closer"]), len(mv["further"]))
+    if gate["borderline"]:
+        a2, mv2 = second()
+        gate = M.keep_candidate(exact_best, M.pool(first.get("exact", 0), a2.get("exact", 0)), mae_best,
+                                M.pool(first.get("mae", 1e9), a2.get("mae", 1e9)), words_best, words_cand,
+                                len(mv["closer"]) + len(mv2["closer"]), len(mv["further"]) + len(mv2["further"]), confirm=True)
+    return gate
 
 
-def refine(run: Run, a, setup: dict, items: list[dict]) -> str:
-    """The loop for one metric: score, review, diagnose, edit, gate — until a stop rule fires. Returns the best version."""
+def simplify(run: Run, a, st: dict, checklist: dict, score_items, editable: tuple[str, ...], words, metrics, N, ev, gm) -> str | None:
+    """The shrink loop once refinement stops: the generator only merges and shortens the best version's editable
+    text (MODE: SIMPLIFY), pass after pass, and each shorter version is kept while the exact matches hold. It
+    stops the first time compression costs accuracy — the sweet point is measured, not set. Returns the new best,
+    or None."""
+    if st["best"] == "v0" or st.get("simplified"):
+        return None
+    st["simplified"] = True
+    V = lambda ver, f: f"versions/{ver}/{f}"  # noqa: E731
+    won = None
+    for i in range(1, SHRINK_PASSES + 1):  # a safety bound, not a target: shrinking usually fails before this
+        best = st["best"]
+        cand = "vS" if i == 1 else f"vS{i}"
+        if not run.read(V(cand, "chunks.json")):
+            summ = {"mode": "simplify", "rewrite_brief": "", "checklist": checklist, "summary": "",
+                    "overview": prompts.render("simplify_overview")}
+            chunks, gen, problems = agents.generate(run.read(V(best, "chunks.json")), summ, "(none)",
+                                                    run.read("dialogue.md", ""), v0_words=words("v0"), editable=editable, **gm)
+            if problems:
+                debug(run, f"--- simplify pass skipped: {'; '.join(problems)}")
+                break
+            run.write(V(cand, "chunks.json"), chunks)
+            run.write(V(cand, "prompt.md"), agents.assemble(chunks))
+            st["changes"][cand] = {"parent": best, "realisation": "", "summary": gen["summary"], "edits": gen["edits"],
+                                   "rewrite": [], "problems": []}
+        if run.read(V(cand, "scores.json")) is None:
+            run.write(V(cand, "scores.json"), score_items(run.read(V(cand, "prompt.md"))))
+        # shorter is kept while the exact matches hold (and the gap does not slip)
+        kept = (metrics(cand).get("exact", 0) >= metrics(best).get("exact", 0)
+                and metrics(cand).get("mae", 1e9) <= metrics(best).get("mae", 1e9) and words(cand) < words(best))
+        ev("version.scored", version=cand, numbers=N(cand))
+        ev("version.verdict", version=cand, parent=best, verdict="kept" if kept else "rejected", numbers=N(cand),
+           best_before={"version": best, "numbers": N(best)}, closer=0, further=0, words=words(cand),
+           reason="shrink pass: same accuracy, fewer words" if kept else "shrink pass cost accuracy or was not shorter")
+        # a resumed run may find the candidate's chunks on disk while state.json predates them
+        st["changes"].setdefault(cand, {"parent": best, "realisation": "", "summary": "", "edits": [],
+                                        "rewrite": [], "problems": []})
+        st["changes"][cand].update(verdict="KEPT" if kept else "REJECTED", words=words(cand))
+        if cand not in st["versions"]:
+            st["versions"].append(cand)
+        if kept:
+            st["best"] = cand
+            won = cand
+        run.write("state.json", st)
+        debug(run, f"--- {cand} (shrink {i}) {'KEPT' if kept else 'REJECTED'} · {numbers(metrics(cand), out)} · "
+                   f"{words(cand)} words (best had {words(best)})")
+        if not kept:
+            break
+    run.write("state.json", st)
+    return won
+
+
+def refine(run: Run, a, setup: dict, items: list[dict], editable: tuple[str, ...] = (agents.EDITABLE,)) -> str:
+    """The loop for one metric: score, review, diagnose, edit, gate — until a stop rule fires, then one simplify
+    pass. `editable` names the layers this loop may change. Returns the best version."""
     out = setup["output"]
-    kind = out["type"]
+    kind = agents.kind_of(setup, out)  # feedback mode: errors measure verdict satisfaction
     truths = {it["id"]: reference(it["truth"], out) for it in items}
     refs = {i: v for i, v in truths.items() if v is not None}
+    # the split: everything below — scoring, notes, checklist, gate, stop rules — sees train only. Test items are
+    # scored once at the very end (score_test) and never before; score_items refuses them.
+    sp = split.read(run)
+    train, test = split.part(items, sp["train"]), split.part(items, sp["test"])
+    test_ids = {it["id"] for it in test}
+    refs_train, refs_test = split.filter_refs(refs, sp["train"]), split.filter_refs(refs, sp["test"])
     jm = dict(model=a.judge_model, effort=a.effort)
     gm = dict(model=a.generator_model, effort=a.effort)
     mkey = run.label or agents.metrics_of(setup)[0]["key"]
     ev = lambda type, **d: events.emit((run.parent or run).dir, type, mkey, **d)  # noqa: E731  events go to the chat's run
     V = lambda ver, f: f"versions/{ver}/{f}"  # noqa: E731
 
+    def score_items(prompt: str, subset: list[dict] | None = None, raw: dict | None = None) -> dict:
+        """Score train items (or a subset of them) with a prompt; a test item here is a bug."""
+        subset = train if subset is None else subset
+        split.guard(subset, test_ids)
+        return agents.score(prompt, subset, out, schema=setup.get("output_schema"), raw=raw, model=a.scorer,
+                            effort=a.scorer_effort, workers=a.workers)
+
     def scored(ver: str) -> dict:
         if run.read(V(ver, "scores.json")) is None:
             answers: dict = {}
-            run.write(V(ver, "scores.json"), agents.score(run.read(V(ver, "prompt.md")), items, out, schema=setup.get("output_schema"),
-                                                          raw=answers, model=a.scorer, effort=a.effort,
-                                                          workers=a.workers))
+            run.write(V(ver, "scores.json"), score_items(run.read(V(ver, "prompt.md")), raw=answers))
             run.write(V(ver, "outputs.json"), answers)
         return run.read(V(ver, "scores.json"))
 
     def reviewed(ver: str, subset: list[dict] | None = None) -> dict:
         if run.read(V(ver, "notes.json")) is None:
-            todo, preds = items if subset is None else subset, scored(ver)  # score first
-            run.write(V(ver, "notes.json"), agents.review(agents.annotated(run.read(V(ver, "chunks.json"))), todo,
+            todo, preds = train if subset is None else subset, scored(ver)  # score first
+            run.write(V(ver, "notes.json"), agents.review(agents.annotated(run.read(V(ver, "chunks.json")), editable), todo,
                                                           preds, truths, out, workers=a.workers, **jm))
         return run.read(V(ver, "notes.json"))
 
-    E = lambda ver: M.item_errors(scored(ver), refs, kind)  # noqa: E731
+    words = lambda ver: agents.editable_words(run.read(V(ver, "chunks.json")), editable)  # noqa: E731  this loop's text
+    E = lambda ver: M.item_errors(scored(ver), refs_train, kind)  # noqa: E731  train errors
     metrics = lambda ver: M.alignment(E(ver), None, kind)  # noqa: E731
-    N = lambda ver: M.summary(E(ver), kind)  # noqa: E731  the numbers in every version event
+    N = lambda ver: M.summary(E(ver), kind)  # noqa: E731  the numbers in every version event (train)
 
-    ids_prop = {"type": "array", "items": {"type": "string"}}
-    J = JUDGE_TOOLS.__getitem__  # descriptions live in prompts/judge_tools.py
-    tools = {
-        "alignment": (J("alignment"), {"type": "object", "properties": {"version": {"type": "string"}, "ids": ids_prop},
-                                       "required": ["version"]},
-                      lambda version, ids=None: M.alignment(E(version), ids, kind)),
-        "item_errors": (J("item_errors"),
-                        {"type": "object", "properties": {"version": {"type": "string"}, "ids": ids_prop}, "required": ["version"]},
-                        lambda version, ids=None: {i: x for i, x in E(version).items() if not ids or i in ids}),
-        "compare": (J("compare"),
-                    {"type": "object", "properties": {"old": {"type": "string"}, "new": {"type": "string"}}, "required": ["old", "new"]},
-                    lambda old, new: M.compare(E(old), E(new))),
-        "pattern_check": (J("pattern_check"),
-                          {"type": "object", "properties": {"version": {"type": "string"}, "ids": ids_prop}, "required": ["version", "ids"]},
-                          lambda version, ids: M.pattern_check(E(version), ids)),
-        "volatility": (J("volatility"),
-                       {"type": "object", "properties": {"version": {"type": "string"}}, "required": ["version"]},
-                       lambda version: M.volatility(E(version), refs)),
-    }
+    def score_test(versions: list[str]) -> dict[str, dict]:
+        """The one scoring of the held-out items, after the loop has stopped: v0 and the best version, each once.
+        Writes versions/<v>/scores_test.json and outputs_test.json; returns version -> numbers on test."""
+        numbers_of = {}
+        for ver in versions:
+            if run.read(V(ver, "scores_test.json")) is None:
+                answers: dict = {}
+                run.write(V(ver, "scores_test.json"), agents.score(run.read(V(ver, "prompt.md")), test, out, schema=setup.get("output_schema"),
+                                                                   raw=answers, model=a.scorer, effort=a.scorer_effort, workers=a.workers))
+                run.write(V(ver, "outputs_test.json"), answers)
+            numbers_of[ver] = M.summary(M.item_errors(run.read(V(ver, "scores_test.json")), refs_test, kind), kind)
+        return numbers_of
+
+    tools = agents.tools(E, refs_train, kind)  # the judge measures train only
 
     st = run.read("state.json") or {"round": 0, "best": "v0", "fails": 0, "versions": ["v0"], "by_item": {},
-                                     "last_change": "(baseline — no edit yet)", "rounds": [], "changes": {}}
+                                     "last_change": prompts.render("last_change_baseline"), "rounds": [], "changes": {}}
     checklist = run.read("checklist.json", {})
 
     def version_row(ver: str) -> dict:
         c = st["changes"].get(ver, {})
         return {"version": ver, "verdict": c.get("verdict", "baseline"), "from": c.get("parent", ""), **metrics(ver),
                 "closer": len(c.get("closer", [])), "further": len(c.get("further", [])),
-                "words": len(run.read(V(ver, "prompt.md")).split())}
+                "words": len(run.read(V(ver, "prompt.md")).split()), "metric_words": words(ver)}
+
+    part_of = {it["id"]: ("test" if it["id"] in test_ids else "train") for it in items}
+    both = lambda ver, name: {**run.read(V(ver, name), {}), **run.read(V(ver, name.replace(".json", "_test.json")), {})}  # noqa: E731
 
     def write_version_excel(ver: str) -> None:
         excel.write(run.dir / V(ver, "result.xlsx"),
-                    excel.version_sheets(ver, version_row(ver), items, scored(ver), refs, E(ver), run.read(V(ver, "notes.json"), {}),
+                    excel.version_sheets(ver, version_row(ver), train, scored(ver), refs_train, E(ver), run.read(V(ver, "notes.json"), {}),
                                          run.read(V(ver, "chunks.json")), st["changes"].get(ver)))
 
     def write_run_excel() -> None:
         vs = [v for v in st["versions"] if run.read(V(v, "scores.json")) is not None]
+        best = st["best"]
+        agreement = [(f"{out['field']} · train", M.agreement(E(best), kind))]
+        if run.read(V(best, "scores_test.json")) is not None:
+            agreement.append((f"{out['field']} · test (held out)", M.agreement(M.item_errors(run.read(V(best, "scores_test.json")), refs_test, kind), kind)))
         excel.write(run.dir / "results.xlsx",
-                    {"Results": excel.results_rows(items, run.read(V(st["best"], "outputs.json"), {}), setup, read_sheet(Path(a.sheet), a.sheet_name)),
-                     "Agreement": excel.agreement_rows([(out["field"], M.agreement(E(st["best"]), kind))]),
-                     **excel.run_sheets([version_row(v) for v in vs], items, refs, {v: scored(v) for v in vs}, st["best"], E(st["best"]),
-                                     {v: run.read(V(v, "notes.json"), {}) for v in vs}, checklist, st["rounds"], st["changes"])})
-        run.write("final_prompt.md", run.read(V(st["best"], "prompt.md")))
+                    {"Results": excel.results_rows(items, both(best, "outputs.json"), setup, read_sheet(Path(a.sheet), a.sheet_name)),
+                     "Agreement": excel.agreement_rows(agreement),
+                     **excel.run_sheets([version_row(v) for v in vs], items, refs, {v: both(v, "scores.json") for v in vs}, best,
+                                        M.item_errors(both(best, "scores.json"), refs, kind),
+                                        {v: run.read(V(v, "notes.json"), {}) for v in vs}, checklist, st["rounds"], st["changes"], part_of)})
+        run.write("final_prompt.md", run.read(V(best, "prompt.md")))
 
     while True:
         best, rnd0 = st["best"], st["round"]
@@ -262,12 +347,12 @@ def refine(run: Run, a, setup: dict, items: list[dict]) -> str:
 
         # ---- judge: holistic diagnosis + checklist ----
         tool_log: list = []
-        summ = agents.summarise(agents.annotated(run.read(V(best, "chunks.json"))), best, st["versions"], rv, errs, out,
+        summ = agents.summarise(agents.annotated(run.read(V(best, "chunks.json")), editable), best, st["versions"], rv, errs, out,
                                 st["last_change"], run.read("dialogue.md", ""), checklist, tools, tool_log, **jm)
         bad = [x for x in summ["issues"] if not x.get("title")]
         if bad:
             debug(run, f"judge returned {len(bad)} issue(s) without all fields: {json.dumps(bad)[:400]}")
-        update_checklist(checklist, summ["issues"], rnd0, best, errs, set(refs))
+        update_checklist(checklist, summ["issues"], rnd0, best, errs, set(refs_train))
         run.write("checklist.json", checklist)
         ev("judge.done", round=rnd0, version=best, mode=summ["mode"], overview=str(summ.get("overview", ""))[:700],
            issues=[{"id": k, "title": c.get("title", ""), "direction": c.get("direction", ""), "status": c["status"],
@@ -306,7 +391,33 @@ def refine(run: Run, a, setup: dict, items: list[dict]) -> str:
                else f"target reached — MAE {mae_best} ≤ {a.target}" if a.target is not None and mae_best <= a.target
                else f"no improvement in {a.patience} rounds" if st["fails"] >= a.patience else None)
         if why:
+            best = simplify(run, a, st, checklist, score_items, editable, words, metrics, N, ev, gm) or best
+            # why the loop stopped where it did, in plain language, measured by code (math_tool.diagnose)
+            flips = flip_n = 0
+            for v in st["versions"]:
+                s2 = run.read(V(v, "scores2.json"))
+                if s2 is not None:
+                    e1, e2 = E(v), M.item_errors(s2, refs_train, kind)
+                    shared = set(e1) & set(e2)
+                    flips += sum(1 for i in shared if e1[i] != e2[i])
+                    flip_n += len(shared)
+            diag = M.diagnose(E(st["best"]), refs_train, metrics("v0").get("exact", 0), metrics(st["best"]).get("exact", 0),
+                              rnd0, sum(1 for c in st["changes"].values() if c.get("verdict") == "KEPT"),
+                              flips if flip_n else None, flip_n)
+            st["diagnosis"] = diag
+            run.write("state.json", st)
+            ev("metric.diagnosis", note=diag["note"], action=diag["action"], signals=diag["signals"])
+            debug(run, f"--- diagnosis: {diag['note']}")
             ev("metric.stopped", best=best, reason=why, rounds=rnd0, numbers=N(best))
+            # the held-out items, scored once now that the rubric is final: the out-of-sample numbers
+            if test:
+                t = score_test(sorted({"v0", st["best"]}))
+                st["train"] = {"v0": N("v0"), st["best"]: N(st["best"])}
+                st["test"] = t
+                run.write("state.json", st)
+                ev("metric.test", best=st["best"], train=st["train"], test=t, n_train=len(train), n_test=len(test))
+                debug(run, f"--- held-out test ({len(test)} items): v0 {numbers(t['v0'], out)} → {st['best']} {numbers(t[st['best']], out)}"
+                           f" · train: v0 {numbers(N('v0'), out)} → {st['best']} {numbers(N(st['best']), out)}")
             break
 
         # ---- author: next candidate ----
@@ -319,9 +430,10 @@ def refine(run: Run, a, setup: dict, items: list[dict]) -> str:
                 for i in c["items"]:
                     issues_of.setdefault(i, []).append(k)
             csv = agents.table(rv, errs, out, {i: " | ".join(h) for i, h in st["by_item"].items()}, issues_of)
-            chunks, gen, problems = agents.generate(run.read(V(best, "chunks.json")), summ, csv, run.read("dialogue.md", ""), **gm)
-            locked = [c for c in chunks if c["layer"] != agents.EDITABLE]
-            assert locked == [c for c in run.read("setup/baseline/layout.json") if c["layer"] != agents.EDITABLE], "locked layer changed"
+            chunks, gen, problems = agents.generate(run.read(V(best, "chunks.json")), summ, csv, run.read("dialogue.md", ""),
+                                                    v0_words=words("v0"), editable=editable, **gm)
+            locked = [c for c in chunks if c["layer"] not in editable]
+            assert locked == [c for c in run.read("setup/baseline/layout.json") if c["layer"] not in editable], "locked layer changed"
             run.write(V(cand, "chunks.json"), chunks)
             run.write(V(cand, "prompt.md"), agents.assemble(chunks))
             st["changes"][cand] = {"parent": best, "realisation": gen["realisation"], "summary": gen["summary"],
@@ -329,7 +441,8 @@ def refine(run: Run, a, setup: dict, items: list[dict]) -> str:
                                    "rewrite": gen["rewrite"] if summ["mode"] == "rewrite" else [], "problems": problems}
             run.write("state.json", st)
             run.append("dialogue.md", f"\n## {cand} (from {best})\n[author] realisation: {gen['realisation']}\n[author] change: {gen['summary']}\n"
-                       + "".join(f"  - {e['issue']}: “{e['old_text'][:120]}” → “{e['new_text'][:400]}”\n" for e in st["changes"][cand]["edits"])
+                       + "".join(f"  - {e['issue']} {e.get('op', 'replace')}: “{e['old_text'][:120]}” → “{e['new_text'][:400]}”\n"
+                                 for e in st["changes"][cand]["edits"])
                        + (f"  (rewrote the {len(gen['rewrite'])} editable part(s) of the metrics layer)\n" if st["changes"][cand]["rewrite"] else "")
                        + (f"  (edits not applied: {'; '.join(problems)})\n" if problems else ""))
             debug(run, f"--- {cand} written from {best}: {gen['summary']}\nrealisation: {gen['realisation']}"
@@ -339,13 +452,25 @@ def refine(run: Run, a, setup: dict, items: list[dict]) -> str:
 
         ec = E(cand)
         ev("version.scored", version=cand, numbers=N(cand))
-        kept = metrics(cand).get("mae", 1e9) < mae_best
+        # the gate (math_tool.keep_candidate): exact matches decide, measured twice — a first-pass winner is
+        # scored once more and the pooled numbers (mean of both passes) give the verdict.
         mv = M.compare(errs, ec)
+
+        def second_pass() -> tuple[dict, dict]:
+            debug(run, f"--- {cand} ahead on the first pass: scoring once more to confirm")
+            if run.read(V(cand, "scores2.json")) is None:
+                run.write(V(cand, "scores2.json"), score_items(run.read(V(cand, "prompt.md"))))
+            e2 = M.item_errors(run.read(V(cand, "scores2.json")), refs_train, kind)
+            return M.alignment(e2, None, kind), M.compare(errs, e2)
+
+        gate = decide(metrics(best).get("exact", 0), mae_best, metrics(cand), words(best), words(cand), mv, second_pass)
+        kept = gate["kept"]
         verdict = "KEPT" if kept else "REJECTED"
         ev("version.verdict", version=cand, parent=best, verdict=verdict.lower(), numbers=N(cand),
-           best_before={"version": best, "numbers": N(best)}, closer=len(mv["closer"]), further=len(mv["further"]))
+           best_before={"version": best, "numbers": N(best)}, closer=gate["closer"], further=gate["further"],
+           words=words(cand), gain=gate["gain"], reason=gate["reason"])
         # kept: review everything (it is next round's best); rejected: only what it pushed further away
-        notes = reviewed(cand, None if kept else [it for it in items if it["id"] in set(mv["further"])])
+        notes = reviewed(cand, None if kept else [it for it in train if it["id"] in set(mv["further"])])
         notes = {i: notes.get(i, {}) for i in mv["further"]}
         tag = f"{cand} {verdict.lower()}"
         for i in mv["closer"]:
@@ -353,12 +478,14 @@ def refine(run: Run, a, setup: dict, items: list[dict]) -> str:
         for i in mv["further"]:
             n = notes.get(i, {})
             st["by_item"].setdefault(i, []).append(f"{tag}: further — {n.get('comment', '')[:200]} (clause: {n.get('clause', '')[:120]})")
-        st["last_change"] = (f"{cand} (edited from {best}) was {verdict}. Use the tools to measure it against {best}.\n"
-                             f"Items this edit pushed further from the reference, with the reason:\n"
-                             + "\n".join(f"  [{i}] {n.get('direction', '')} — clause: {n.get('clause', '')[:160]} — {n.get('comment', '')}"
-                                         for i, n in notes.items()))
+        st["last_change"] = prompts.render(
+            "last_change", cand=cand, best=best, verdict=verdict, reason=f" ({gate['reason']})" if gate["reason"] else "",
+            words=words(cand), best_words=words(best), v0_words=words("v0"),
+            items="\n".join(prompts.render("last_change_item", id=i, direction=n.get("direction", ""), clause=n.get("clause", "")[:160],
+                                           comment=n.get("comment", "")) for i, n in notes.items()))
         st["changes"].setdefault(cand, {"parent": best, "realisation": "", "summary": "", "edits": [], "rewrite": [], "problems": []})
-        st["changes"][cand].update(verdict=verdict, closer=list(mv["closer"]), further=list(mv["further"]))
+        st["changes"][cand].update(verdict=verdict, closer=list(mv["closer"]), further=list(mv["further"]), words=words(cand),
+                                   gate=gate)
         run.write(V(cand, "change.md"), f"# {cand} · {verdict} · from {best}\n\n{numbers(metrics(cand), out)}\n\n"
                   f"closer: {', '.join(mv['closer']) or '-'}\nfurther: {', '.join(mv['further']) or '-'}\n\n"
                   f"## realisation\n{st['changes'][cand]['realisation']}\n\n## change\n{st['changes'][cand]['summary']}\n\n"
@@ -373,8 +500,9 @@ def refine(run: Run, a, setup: dict, items: list[dict]) -> str:
         run.write("state.json", st)
         write_version_excel(cand)
         run.append("dialogue.md", f"[result] {cand} {verdict}; closer {list(mv['closer'])}; further {list(mv['further'])}")
-        debug(run, f"--- {cand} {verdict} · {numbers(metrics(cand), out)} · closer {', '.join(mv['closer']) or '-'} · "
-                   f"further {', '.join(mv['further']) or '-'}")
+        debug(run, f"--- {cand} {verdict}{' (' + gate['reason'] + ')' if gate['reason'] else ''} · {numbers(metrics(cand), out)} · "
+                   f"{words(cand)} words (+{gate['added_words']}), gain {gate['gain']}, moves {gate['closer']}/{gate['further']} · "
+                   f"closer {', '.join(mv['closer']) or '-'} · further {', '.join(mv['further']) or '-'}")
         print(f"{run.label + ' ' if run.label else ''}r{rnd:02d} {cand} {verdict} · {numbers(metrics(cand), out)}", flush=True)
 
     write_run_excel()

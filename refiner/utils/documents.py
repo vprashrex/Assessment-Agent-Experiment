@@ -6,7 +6,7 @@ import re
 import zipfile
 from pathlib import Path
 
-IMAGE_EXT = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+from .files import IMAGE_MIME as IMAGE_EXT
 
 
 def extension(data: bytes, ctype: str) -> str:

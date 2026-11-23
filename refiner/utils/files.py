@@ -1,4 +1,4 @@
-"""Reading run files."""
+"""Reading run files, and the media types of the files the refiner attaches."""
 
 from __future__ import annotations
 
@@ -6,6 +6,11 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+
+
+# the files a submission may attach, as the models receive them (PDF and images; anything else becomes text)
+IMAGE_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp"}
+MIME = {".pdf": "application/pdf", **IMAGE_MIME}
 
 
 def read(path: Path, default: Any = None) -> Any:

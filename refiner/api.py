@@ -21,10 +21,11 @@ from pathlib import Path
 import pandas as pd
 from typing import Any
 
+from . import agents
 from .agents import math_tool as M
-from .agents import metrics_of, reference
+from .agents import kind_of, metrics_of, reference
 from .config import RunConfig
-from .engine import events, loop
+from .engine import events, loop, run as engine_run, split
 from .engine import report as rpt
 from .engine.loop import NeedsAnswers, Run
 from .utils import process
@@ -48,6 +49,7 @@ def prepare(cfg: RunConfig) -> dict:
             "columns": {"id": setup["id_column"], "inputs": setup["input_columns"]},
             "metrics": [{"key": m["key"], "reference": m["truth_column"], "output": m["output"]} for m in metrics_of(setup)],
             "items": len(items), "items_with_files": sum(bool(it.get("files")) for it in items),
+            "split": {k: len(v) for k, v in split.read(run).items()},
             "problems": problems,
             "layers": [{"layer": c["layer"], **({"metric": c["metric"]} if c.get("metric") else {}),
                         "locked": c["layer"] != "metrics", "lines": c["text"].count("\n"),
@@ -77,9 +79,10 @@ def lock_models(cfg: RunConfig) -> None:
 
 
 def refine(cfg: RunConfig) -> dict:
-    """The full loop in this process. Resumes if the run folder already has progress. Returns the best version per
-    metric."""
-    return loop.main(cfg)
+    """The full loop in this process. Resumes if the run folder already has progress. Locks the models first, so a
+    resume with other models is refused. Returns the best version per metric."""
+    lock_models(cfg)
+    return engine_run.main(cfg)
 
 
 def start(cfg: RunConfig, prepare_only: bool = False) -> dict:
@@ -165,7 +168,7 @@ def report(run_dir: str) -> dict | None:
     return read(Path(run_dir) / "report.json")
 
 
-def _metric_dir(run_dir: str, metric: str | None) -> tuple[Path, dict, str]:
+def metric_dir(run_dir: str, metric: str | None) -> tuple[Path, dict, str]:
     d = Path(run_dir)
     setup = read(d / "setup/setup.json")
     if setup is None:
@@ -186,7 +189,7 @@ def version_report(run_dir: str, metric: str | None = None) -> dict:
         return {"run": run_dir, "metrics": {}, "note": "not prepared yet"}
     out = {}
     for key in ([metric] if metric else [m["key"] for m in metrics_of(setup)]):
-        mdir, o, key = _metric_dir(run_dir, key)
+        mdir, o, key = metric_dir(run_dir, key)
         st = read(mdir / "state.json") or {}
         rows = rpt.lineage(mdir, o)
         for r in rows:
@@ -196,22 +199,34 @@ def version_report(run_dir: str, metric: str | None = None) -> dict:
     return {"run": run_dir, "metrics": out}
 
 
+# fan-out stages that are not metrics: their folder under the run and the layers their versions edit
+STAGES = {"procedure": (agents.PROCEDURE,), "polish": (agents.EDITABLE, agents.PROCEDURE)}
+
+
 def rubric(run_dir: str, metric: str | None, ver: str) -> dict:
-    """One version's metric section and its parent's, for a side-by-side diff."""
-    mdir, _, key = _metric_dir(run_dir, metric)
-    text = rpt.section(mdir, ver)
+    """One version's editable section and its parent's, for a side-by-side diff: a metric's section, or for
+    the procedure and polish stages the layers they edit."""
+    if metric in STAGES:
+        mdir, key = Path(run_dir) / metric, metric
+        section = lambda v: rpt.section(mdir, v, STAGES[metric])  # noqa: E731
+    else:
+        mdir, _, key = metric_dir(run_dir, metric)
+        section = lambda v: rpt.section(mdir, v)  # noqa: E731
+    text = section(ver)
     if text is None:
         raise FileNotFoundError(f"{key} has no version {ver}")
     parent = ((read(mdir / "state.json") or {}).get("changes", {}).get(ver, {}) or {}).get("parent")
     return {"metric": key, "version": ver, "parent": parent, "text": text,
-            "parent_text": rpt.section(mdir, parent) if parent else None}
+            "parent_text": section(parent) if parent else None}
 
 
-def _errors(d: Path) -> tuple[dict, str]:
+def _errors(d: Path) -> tuple[dict, dict, str]:
+    """(train references, test references, kind) of a metric's run folder; runs without a split are all train."""
     setup, items = read(d / "setup/setup.json"), read(d / "setup/items.json", [])
     out = setup["output"]
     refs = {it["id"]: v for it in items if (v := reference(it["truth"], out)) is not None}
-    return refs, out["type"]
+    sp = read(d / split.FILE) or {"train": list(refs), "test": []}
+    return split.filter_refs(refs, sp["train"]), split.filter_refs(refs, sp["test"]), kind_of(setup, out)
 
 
 def status(run_dir: str) -> dict:
@@ -236,19 +251,21 @@ def status(run_dir: str) -> dict:
             stage = "prepared" if prep and prep.get("ready") else "needs answers" if prep else "not prepared"
         tail = read(d / "run.log", "").splitlines()[-5:]
         return {**res, "stage": stage, "setup": prep, "log_tail": tail}
-    refs, kind = _errors(d)
+    refs, refs_test, kind = _errors(d)
     rows = []
     for v in st["versions"]:
-        sc = read(d / f"versions/{v}/scores.json")
+        sc, sct = read(d / f"versions/{v}/scores.json"), read(d / f"versions/{v}/scores_test.json")
         if sc is None:
             continue
         c = st["changes"].get(v, {})
         rows.append({"version": v, "verdict": c.get("verdict", "baseline"), "from": c.get("parent", ""),
-                     **M.alignment(M.item_errors(sc, refs, kind), None, kind)})
+                     **M.alignment(M.item_errors(sc, refs, kind), None, kind),
+                     **({"test": M.alignment(M.item_errors(sct, refs_test, kind), None, kind)} if sct is not None and refs_test else {})})
     checklist = read(d / "checklist.json", {})
     last = st["rounds"][-1] if st.get("rounds") else {}
     log = read(d / "debug.txt", "").splitlines()
     return {**res, "round": st["round"], "best": st["best"], "rejected_in_a_row": st["fails"], "versions": rows,
+            "split": {"train": len(refs), "test": len(refs_test)},
             "checklist": [{"id": k, "status": c["status"], "title": c.get("title", ""), "direction": c["direction"], "items": len(c["items"])}
                           for k, c in checklist.items()],
             "locked_flags": last.get("locked", []), "overview": last.get("overview", ""),
@@ -259,30 +276,3 @@ def status(run_dir: str) -> dict:
 def checklist(run_dir: str) -> dict:
     """The full issue checklist: root cause, items, clause, fix and the per-round status history of every issue."""
     return read(Path(run_dir) / "checklist.json", {})
-
-
-def version(run_dir: str, ver: str) -> dict:
-    """One version: its numbers, verdict, the full prompt and what changed."""
-    d = Path(run_dir)
-    sc = read(d / f"versions/{ver}/scores.json")
-    if sc is None:
-        return {"error": f"{ver} has not been scored"}
-    refs, kind = _errors(d)
-    st = read(d / "state.json", {"changes": {}})
-    c = st["changes"].get(ver, {})
-    return {"version": ver, "verdict": c.get("verdict", "baseline"), "from": c.get("parent", ""),
-            "metrics": M.alignment(M.item_errors(sc, refs, kind), None, kind),
-            "prompt": read(d / f"versions/{ver}/prompt.md", ""), "change": read(d / f"versions/{ver}/change.md", ""),
-            "result_xlsx": str(d / f"versions/{ver}/result.xlsx")}
-
-
-def list_runs(root: str = "runs") -> list[dict]:
-    """Every refiner run under `root` (folders with setup/setup.json), newest first."""
-    out = []
-    for p in Path(root).glob("*/setup/setup.json"):
-        d = p.parent.parent
-        st = read(d / "state.json") or {}
-        proc = read(d / "process.json")
-        out.append({"run": str(d), "round": st.get("round"), "best": st.get("best"),
-                    "running": bool(proc and process.alive(proc["pid"])), "updated": time.strftime("%Y-%m-%d %H:%M", time.localtime(d.stat().st_mtime))})
-    return sorted(out, key=lambda r: r["updated"], reverse=True)

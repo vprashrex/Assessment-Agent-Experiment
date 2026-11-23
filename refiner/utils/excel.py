@@ -113,7 +113,7 @@ def version_sheets(ver: str, metrics: dict, items: list[dict], scores: dict, ref
                              {"field": "closer", "value": change.get("closer", [])},
                              {"field": "further", "value": change.get("further", [])},
                              {"field": "not applied", "value": change.get("problems", [])}]
-                            + [{"field": f"edit · {e['issue']}", "value": f"OLD: {e['old_text']}\n\nNEW: {e['new_text']}"}
+                            + [{"field": f"edit · {e['issue']} · {e.get('op', 'replace')}", "value": f"OLD: {e['old_text']}\n\nNEW: {e['new_text']}"}
                                for e in change.get("edits", [])]
                             + [{"field": f"rewrite part {k}", "value": t} for k, t in enumerate(change.get("rewrite", []), 1)])
     return sheets
@@ -121,13 +121,16 @@ def version_sheets(ver: str, metrics: dict, items: list[dict], scores: dict, ref
 
 def run_sheets(versions: list[dict], items: list[dict], refs: dict, scores: dict[str, dict], best: str,
                errs_best: dict, notes: dict[str, dict], checklist: dict, rounds: list[dict],
-               changes: dict[str, dict]) -> dict[str, list[dict]]:
+               changes: dict[str, dict], split: dict[str, str] | None = None) -> dict[str, list[dict]]:
+    """`split`: item id -> "train" / "test"; when given, Items carries the column (test rows have scores only for
+    the versions scored on the held-out set)."""
     vs = [v["version"] for v in versions]
     item_rows = []
     for it in items:
         i = it["id"]
         n = notes.get(best, {}).get(i, {})
-        item_rows.append({"id": i, "reference": refs.get(i), **{v: scores.get(v, {}).get(i) for v in vs},
+        item_rows.append({"id": i, **({"split": split.get(i, "")} if split else {}), "reference": refs.get(i),
+                          **{v: scores.get(v, {}).get(i) for v in vs},
                           f"error ({best})": errs_best.get(i), "direction": n.get("direction", ""), "comment": n.get("comment", "")})
     rnds = sorted({e["round"] for x in checklist.values() for e in x["history"]})
     check_rows = [{"id": k, "title": x["title"], "status": x["status"], "direction": x["direction"], "items": x["items"],
@@ -137,7 +140,7 @@ def run_sheets(versions: list[dict], items: list[dict], refs: dict, scores: dict
     note_rows = [{"version": v, "id": i, **{k: n.get(k, "") for k in ("direction", "observations", "model_reasoning", "clause", "comment")}}
                  for v in vs for i, n in sorted(notes.get(v, {}).items())]
     edit_rows = [{"version": v, "verdict": c.get("verdict", ""), "from": c.get("parent", ""), "issue": e["issue"],
-                  "old_text": e["old_text"], "new_text": e["new_text"]}
+                  "op": e.get("op", "replace"), "old_text": e["old_text"], "new_text": e["new_text"]}
                  for v, c in changes.items() for e in c.get("edits", [])]
     edit_rows += [{"version": v, "verdict": c.get("verdict", ""), "from": c.get("parent", ""), "issue": "(rewrite)",
                    "old_text": "", "new_text": "\n\n".join(c["rewrite"])} for v, c in changes.items() if c.get("rewrite")]
