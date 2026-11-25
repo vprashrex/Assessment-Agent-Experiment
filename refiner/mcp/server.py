@@ -79,11 +79,11 @@ def start_run(chat_id: str, sheet: str, prompt: str, context: str | None = None,
               judge_model: str | None = None, generator_model: str | None = None, scorer: str | None = None,
               effort: str = DEFAULTS["effort"], scorer_effort: str | None = None, rounds: int = DEFAULTS["rounds"],
               patience: int = DEFAULTS["patience"], target: float | None = None, n: int | None = None,
-              split: str = DEFAULTS["split"], seed: int = DEFAULTS["seed"]) -> dict:
+              split: str = DEFAULTS["split"], seed: int = DEFAULTS["seed"], budget: float | None = None) -> dict:
     return api.start(_cfg(chat_id, sheet, context, prompt, schema, docs_dir, sheet_name=sheet_name, model=model,
                           parser_model=parser_model, judge_model=judge_model, generator_model=generator_model,
                           scorer=scorer, effort=effort, scorer_effort=scorer_effort, rounds=rounds,
-                          patience=patience, target=target, n=n, split=split, seed=seed))
+                          patience=patience, target=target, n=n, split=split, seed=seed, budget=budget))
 
 
 @mcp.tool(annotations=READ, description=mcp_prompts.TOOLS["run_status"])

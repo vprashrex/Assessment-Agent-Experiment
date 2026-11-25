@@ -30,7 +30,7 @@ prompts/
 | Rubric markers | | `USER["marker_editable"]`, `USER["marker_locked"]` | `layer`, `k`, `text` | `agents/layers.py` (`annotated`) |
 | Checklist and notes text | | `USER["checklist_empty"]`, `USER["checklist_entry"]`, `USER["judge_note"]`, `USER["judge_verdict_reference"]`, `USER["judge_review_unavailable"]`, `USER["synthetic_review"]` | | `agents/judge.py` |
 | The round's overview and last change | | `USER["simplify_overview"]`, `USER["polish_overview"]` (`target`), `USER["last_change"]` (+ `last_change_item`, `last_change_baseline`, `last_change_shared`) | | `engine/loop.py`, `engine/fanout.py` |
-| Chat Agent's view of the server | | | | `mcp/server.py` (`mcp.INSTRUCTIONS`, `mcp.TOOLS`) |
+| Chat Agent's view of the server (`start_run` takes `budget`; `run_status` reports `spent`) | | | | `mcp/server.py` (`mcp.INSTRUCTIONS`, `mcp.TOOLS`) |
 
 ## Rules
 

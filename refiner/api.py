@@ -23,6 +23,7 @@ from typing import Any
 
 from . import agents
 from .agents import math_tool as M
+from .agents import spend
 from .agents import kind_of, metrics_of, reference
 from .config import RunConfig
 from .engine import events, loop, run as engine_run, split
@@ -234,7 +235,8 @@ def status(run_dir: str) -> dict:
     d = Path(run_dir)
     proc = read(d / "process.json")
     st = read(d / "state.json")
-    res: dict[str, Any] = {"run": str(d), "running": bool(proc and process.alive(proc["pid"])), "task": (proc or {}).get("task", "")}
+    res: dict[str, Any] = {"run": str(d), "running": bool(proc and process.alive(proc["pid"])), "task": (proc or {}).get("task", ""),
+                           "spent": spend.read(d)}
     setup = read(d / "setup/setup.json")
     # fan-out: one sub-run per metric, then the composed prompt; before the sub-runs exist, report the preparation
     if setup and len(metrics_of(setup)) > 1 and (d / "metrics").is_dir():

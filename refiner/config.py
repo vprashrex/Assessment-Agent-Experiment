@@ -36,6 +36,7 @@ class RunConfig:
     n: int | None = None
     split: str = "80/20"
     seed: int = 0
+    budget: float | None = None
     workers: int = 24
 
     def __post_init__(self) -> None:
@@ -52,6 +53,8 @@ class RunConfig:
             if getattr(self, name) not in EFFORTS:
                 raise ValueError(f"{name} must be one of {', '.join(EFFORTS)}")
         shares(self.split)  # raises on a bad spec
+        if self.budget is not None and self.budget <= 0:
+            raise ValueError("budget must be a positive amount in USD")
 
     def run_models(self) -> dict[str, str]:
         """The models and effort a refinement runs with; locked once it starts (see api.lock_models)."""
@@ -93,5 +96,7 @@ HELP: dict[str, str] = {
     "split": "train/test share, like 80/20; the rubric is tuned on train only and test is scored once at the end "
              "(100/0 = no holdout). Fixed when the run is prepared",
     "seed": "which items go to train and test; fixed when the run is prepared",
+    "budget": "USD: stop at the next round boundary once this much is spent (best version kept); no model call "
+              "starts above 1.25 × budget. Prices come from models.yaml; an unpriced model counts as $0",
     "workers": "parallel model calls (network-bound; a laptop handles the default)",
 }

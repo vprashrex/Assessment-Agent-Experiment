@@ -42,7 +42,7 @@ rubric-refiner/
 ```bash
 uv sync                                           # environment from uv.lock
 uv run refiner --sheet S.xlsx --prompt v0.md --run runs/NAME [--context C.md] [--schema out.json] \
-    [--docs-dir DIR] [--model M] [--effort low|medium|high] [--n N] [--rounds 8] [--split 80/20] [--seed 0]
+    [--docs-dir DIR] [--model M] [--effort low|medium|high] [--n N] [--rounds 8] [--split 80/20] [--seed 0] [--budget USD]
 uv run refiner ... --prepare                      # setup only: columns, layers, attachments, questions
 uv run fastmcp run refiner/mcp/server.py:mcp      # the MCP server by hand (stdio)
 uv run refiner-server                             # HTTP on 127.0.0.1:8765, what Kaapi uses
@@ -97,7 +97,10 @@ Rerunning the same command resumes the run. A cheap smoke test is `--n 6 --round
   scatter / sd(reference) ≥ 0.75. Rewrite mode only when volatile and no issue is real.
 - Issue status, by code each round: first time real → new, else watch; active and real → open, else resolved;
   resolved and real again → reopened.
-- Stop: round ceiling (8), target MAE, or 4 rejected rounds in a row.
+- Stop: round ceiling (8), target MAE, 4 rejected rounds in a row, or `--budget` reached (checked at every round
+  boundary, in the fan-out stages too). Spend: `agents/spend.py` prices every provider response from `models.yaml`
+  (retries and tool turns included), mirrors the ledger to `<run>/spend.json`, and `llm.call` refuses any call above
+  1.25 × budget (`BudgetExceeded`). An unpriced model counts as $0 and is named in the SPENT line — add its price.
 - Models lock when refinement starts: `<run>/models.json` (parser, judge, generator, scorer, effort); a resume with
   other models is refused (`api.lock_models`), so every version is scored by the same models. Only the UI's chat
   agent model can change mid-run.

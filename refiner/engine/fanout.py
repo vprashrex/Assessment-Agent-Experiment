@@ -29,6 +29,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .. import agents, prompts
+from ..agents import spend
 from ..agents import math_tool as M
 from ..utils import excel
 from ..utils.excel import read_sheet
@@ -129,10 +130,12 @@ def refine_procedure(run: Run, a, setup: dict, items: list[dict]) -> None:
                closer=0, further=0)
             st["sent"] = True
             sub.write("state.json", st)
-        if rnd0 >= rounds or st["fails"] >= STAGE_PATIENCE:
+        over = a.budget is not None and spend.total() >= a.budget
+        if rnd0 >= rounds or st["fails"] >= STAGE_PATIENCE or over:
             run.write("procedure/best_layout.json", sub.read(V(best, "chunks.json")))
-            ev("metric.stopped", best=best, reason=f"shared stage done after {rnd0} round{'s' * (rnd0 != 1)}",
-               rounds=rnd0, numbers=N(best))
+            ev("metric.stopped", best=best, reason=(f"budget reached — spent ${spend.total():.2f} of ${a.budget:.2f}" if over
+                                                    else f"shared stage done after {rnd0} round{'s' * (rnd0 != 1)}"),
+               rounds=rnd0, numbers=N(best), spent=spend.total())
             debug(run, f"procedure stage done: best {best} · {words(best)} words")
             return
         errs = E(best)
@@ -196,6 +199,8 @@ def main(run: Run, a, setup: dict, items: list[dict]) -> dict:
     compose(run, a, setup, items, [s[0] for s in subs])
     polish(run, a, setup, items)
     test_pass(run, a, setup, items)
+    from .run import finish  # the cost line (run.py imports fanout; a lazy import avoids the cycle)
+    finish(run)
     report.write(run, a, setup, items)
     return best
 
@@ -254,11 +259,13 @@ def polish(run: Run, a, setup: dict, items: list[dict], rounds: int = POLISH_ROU
                best_before=None, closer=0, further=0)
             st["sent"] = True
             sub.write("state.json", st)
-        if rnd0 >= rounds or st["fails"] >= STAGE_PATIENCE:
+        over = a.budget is not None and spend.total() >= a.budget
+        if rnd0 >= rounds or st["fails"] >= STAGE_PATIENCE or over:
             run.write("final_prompt.md", agents.assemble(sub.read(V(best, "chunks.json"))))
             run.write("composed/final/layout.json", sub.read(V(best, "chunks.json")))
-            ev("metric.stopped", best=best, reason=f"polish done after {rnd0} round{'s' * (rnd0 != 1)}",
-               rounds=rnd0, numbers=M.summary(errors_of(scored(best)), kind))
+            ev("metric.stopped", best=best, reason=(f"budget reached — spent ${spend.total():.2f} of ${a.budget:.2f}" if over
+                                                    else f"polish done after {rnd0} round{'s' * (rnd0 != 1)}"),
+               rounds=rnd0, numbers=M.summary(errors_of(scored(best)), kind), spent=spend.total())
             debug(run, f"polish done: best {best} · total exact {total(scored(best))}")
             return
         sc = scored(best)

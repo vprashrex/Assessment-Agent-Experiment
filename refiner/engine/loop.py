@@ -9,6 +9,7 @@ runs/<run>/
   setup/              setup.json, items.json, split.json (train/test ids, drawn once), baseline/ (1_program 2_metrics
                       3_notes 4_output .md + layout.json)
   models.json         the models and effort the refinement started with; a resume must match them
+  spend.json          USD and tokens per model so far (agents/spend.py), updated after every model call
   versions/vN/        prompt.md, chunks.json, scores.json and outputs.json (train items; outputs = the scorer's whole
                       answers), scores2.json (the gate's second pass), notes.json (judge notes per submission),
                       change.md, result.xlsx; v0 and the best version also get scores_test.json / outputs_test.json,
@@ -30,6 +31,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .. import agents, prompts
+from ..agents import spend
 from ..agents import math_tool as M
 from ..agents import reference
 from ..utils import excel
@@ -386,7 +388,9 @@ def refine(run: Run, a, setup: dict, items: list[dict], editable: tuple[str, ...
         mae_best = metrics(best).get("mae", 1e9)
         why = (f"ceiling — {a.rounds} round{'s' * (a.rounds != 1)}" if rnd0 >= a.rounds
                else f"target reached — MAE {mae_best} ≤ {a.target}" if a.target is not None and mae_best <= a.target
-               else f"no improvement in {a.patience} rounds" if st["fails"] >= a.patience else None)
+               else f"no improvement in {a.patience} rounds" if st["fails"] >= a.patience
+               else f"budget reached — spent ${spend.total():.2f} of ${a.budget:.2f}" if a.budget is not None and spend.total() >= a.budget
+               else None)
         if why:
             best = simplify(run, a, st, checklist, score_items, out, editable, words, metrics, N, ev, gm) or best
             # why the loop stopped where it did, in plain language, measured by code (math_tool.diagnose)
@@ -405,7 +409,7 @@ def refine(run: Run, a, setup: dict, items: list[dict], editable: tuple[str, ...
             run.write("state.json", st)
             ev("metric.diagnosis", note=diag["note"], action=diag["action"], signals=diag["signals"])
             debug(run, f"--- diagnosis: {diag['note']}")
-            ev("metric.stopped", best=best, reason=why, rounds=rnd0, numbers=N(best))
+            ev("metric.stopped", best=best, reason=why, rounds=rnd0, numbers=N(best), spent=spend.total())
             # the held-out items, scored once now that the rubric is final: the out-of-sample numbers
             if test:
                 t = score_test(sorted({"v0", st["best"]}))
@@ -463,7 +467,7 @@ def refine(run: Run, a, setup: dict, items: list[dict], editable: tuple[str, ...
         gate = decide(metrics(best).get("exact", 0), mae_best, metrics(cand), words(best), words(cand), mv, second_pass)
         kept = gate["kept"]
         verdict = "KEPT" if kept else "REJECTED"
-        ev("version.verdict", version=cand, parent=best, verdict=verdict.lower(), numbers=N(cand),
+        ev("version.verdict", version=cand, parent=best, verdict=verdict.lower(), numbers=N(cand), spent=spend.total(),
            best_before={"version": best, "numbers": N(best)}, closer=gate["closer"], further=gate["further"],
            words=words(cand), gain=gate["gain"], reason=gate["reason"])
         # kept: review everything (it is next round's best); rejected: only what it pushed further away
@@ -500,9 +504,9 @@ def refine(run: Run, a, setup: dict, items: list[dict], editable: tuple[str, ...
         debug(run, f"--- {cand} {verdict}{' (' + gate['reason'] + ')' if gate['reason'] else ''} · {numbers(metrics(cand), out)} · "
                    f"{words(cand)} words (+{gate['added_words']}), gain {gate['gain']}, moves {gate['closer']}/{gate['further']} · "
                    f"closer {', '.join(mv['closer']) or '-'} · further {', '.join(mv['further']) or '-'}")
-        print(f"{run.label + ' ' if run.label else ''}r{rnd:02d} {cand} {verdict} · {numbers(metrics(cand), out)}", flush=True)
+        print(f"{run.label + ' ' if run.label else ''}r{rnd:02d} {cand} {verdict} · {numbers(metrics(cand), out)} · spent ${spend.total():.2f}", flush=True)
 
     write_run_excel()
-    debug(run, f"=== STOP: {why} · best {st['best']} → {run.dir / 'final_prompt.md'}\n")
-    print(f"{run.label + ' ' if run.label else ''}STOP: {why} · best {st['best']} · {run.dir / 'results.xlsx'}")
+    debug(run, f"=== STOP: {why} · best {st['best']} · spent ${spend.total():.2f} → {run.dir / 'final_prompt.md'}\n")
+    print(f"{run.label + ' ' if run.label else ''}STOP: {why} · best {st['best']} · spent ${spend.total():.2f} · {run.dir / 'results.xlsx'}")
     return st["best"]

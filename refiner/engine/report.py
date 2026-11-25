@@ -18,6 +18,7 @@ from pathlib import Path
 
 from .. import agents
 from ..agents import math_tool as M
+from ..agents import spend
 from ..utils.files import read
 from . import events, split
 
@@ -87,6 +88,7 @@ def build(run_dir: Path, a=None) -> dict:
         "meta": {"chat_id": chat_id, "created": datetime.now(timezone.utc).isoformat(timespec="seconds"), "task": "refine",
                  "models": models, "effort": getattr(a, "effort", None), "items": len(items),
                  "split": {"spec": sp.get("spec"), "seed": sp.get("seed"), "train": len(sp.get("train", items)), "test": len(sp.get("test", []))},
+                 "spent": spend.read(run_dir),
                  "metrics": [{"key": m["key"], "field": m["output"]["field"], "type": m["output"]["type"],
                               "min": m["output"].get("min"), "max": m["output"].get("max"), "values": m["output"].get("values")}
                              for m in ms],

@@ -10,10 +10,12 @@ from __future__ import annotations
 import json
 import time
 
-from . import models, providers
+from . import models, providers, spend
 from .providers.base import Files, LLMError, Tools
 
-__all__ = ["Files", "LLMError", "Tools", "call"]
+__all__ = ["Files", "LLMError", "Tools", "call", "HARD_CAP"]
+
+HARD_CAP: dict[str, float | None] = {"usd": None}  # set by engine/run: budget × HARD_FACTOR; no call starts above it
 
 
 def call(model: str, system: str, user: str, schema: dict, *, effort: str = "high",
@@ -23,6 +25,9 @@ def call(model: str, system: str, user: str, schema: dict, *, effort: str = "hig
     Every tool call made is appended to `tool_log` as {tool, args, result}."""
     last: Exception | None = None
     for i in range(tries):
+        if HARD_CAP["usd"] is not None and spend.total() >= HARD_CAP["usd"]:
+            raise spend.BudgetExceeded(f"spent ${spend.total():.2f}, hard cap ${HARD_CAP['usd']:.2f}: no new model call "
+                                       f"(rerun with a higher --budget to resume)")
         log: list = []
         try:
             text = providers.get(model)(model, system, user, schema, models.reasoning(model, effort), tools, log, files or [])
@@ -33,7 +38,7 @@ def call(model: str, system: str, user: str, schema: dict, *, effort: str = "hig
             if tool_log is not None:
                 tool_log.extend(log)
             return out
-        except LLMError:
+        except (LLMError, spend.BudgetExceeded):
             raise
         except Exception as e:  # network, overload, 5xx, malformed JSON — all retried the same way
             if "invalid_request" in str(e) or "BadRequest" in type(e).__name__:

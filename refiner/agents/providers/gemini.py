@@ -3,6 +3,7 @@ inline parts. No tool calling, so Gemini models are offered as the scorer only."
 
 from __future__ import annotations
 
+from .. import spend
 from . import base
 from .base import Files, LLMError, Tools, clean_schema
 
@@ -19,6 +20,9 @@ def complete(model: str, system: str, user: str, schema: dict, effort: str | Non
                                          thinking_config=types.ThinkingConfig(thinking_level=effort.upper()) if effort else None)
     resp = base.client("google").models.generate_content(
         model=model, contents=[types.Content(role="user", parts=parts)], config=config)
+    if u := getattr(resp, "usage_metadata", None):
+        spend.record(model, u.prompt_token_count or 0, (u.candidates_token_count or 0) + (getattr(u, "thoughts_token_count", 0) or 0),
+                     cache_read=getattr(u, "cached_content_token_count", 0) or 0)
     if not resp.text:
         reason = resp.candidates[0].finish_reason if resp.candidates else "no candidates"
         raise LLMError(f"{model}: empty answer ({reason})")

@@ -58,14 +58,15 @@ TOOLS = {
         'Start (or resume) the refinement in the background; returns at once. The same files as'
         ' prepare_run. model is\nthe default for every agent; parser_model, judge_model, generator_model'
         ' and scorer override it one by one; scorer_effort sets the scoring model alone (default low). Stop\nrules: rounds (most rounds per metric), patience'
-        ' (rejected rounds in a row), target (stop at this average gap on train). split / seed as in prepare_run;'
+        ' (rejected rounds in a row), target (stop at this average gap on train), budget (USD: stop at the next'
+        ' round once spent, best kept; run_status shows what was spent). split / seed as in prepare_run;'
         ' the values stored at preparation win on a resume.'
     ),
 
     # ---------- run_status ----------
     'run_status': (
         "Where the run stands: running or not, the setup or the parser's questions, each metric's round,"
-        ' best version\nand numbers, the issue checklist, and how it stopped.'
+        ' best version\nand numbers, the issue checklist, how it stopped, and what it has spent (USD, per model).'
     ),
 
     # ---------- stop_run ----------

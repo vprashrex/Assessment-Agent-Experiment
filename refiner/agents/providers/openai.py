@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .. import spend
 from . import base
 from .base import MAX_TOOL_TURNS, Files, LLMError, Tools, b64, clean_schema, run_tool
 
@@ -23,7 +24,11 @@ def complete(model: str, system: str, user: str, schema: dict, effort: str | Non
         kw["tools"] = [{"type": "function", "name": n, "description": d, "parameters": s} for n, (d, s, _) in tools.items()]
 
     def create(**args: Any) -> Any:
-        return base.client("openai").responses.create(**args, **kw)
+        r = base.client("openai").responses.create(**args, **kw)
+        if u := getattr(r, "usage", None):  # every response is paid for, chained tool turns included
+            cached = getattr(getattr(u, "input_tokens_details", None), "cached_tokens", 0) or 0
+            spend.record(model, (u.input_tokens or 0) - cached, u.output_tokens or 0, cache_read=cached)
+        return r
 
     resp = create(input=[{"role": "user", "content": _content(user, files)}])
     for _ in range(MAX_TOOL_TURNS):

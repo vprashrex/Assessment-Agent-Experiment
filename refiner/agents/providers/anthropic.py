@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import models
+from .. import models, spend
 from . import base
 from .base import MAX_TOOL_TURNS, Files, LLMError, Tools, b64, clean_schema, run_tool
 
@@ -30,6 +30,9 @@ def complete(model: str, system: str, user: str, schema: dict, effort: str | Non
     for _ in range(MAX_TOOL_TURNS):
         with base.client("anthropic").beta.messages.stream(messages=messages, **kw) as s:
             resp = s.get_final_message()
+        u = resp.usage  # every turn is paid for, tool turns included
+        spend.record(model, u.input_tokens or 0, u.output_tokens or 0, getattr(u, "cache_creation_input_tokens", 0) or 0,
+                     getattr(u, "cache_read_input_tokens", 0) or 0)
         if resp.stop_reason == "refusal":
             raise LLMError(f"{model} refused")
         if resp.stop_reason != "tool_use":

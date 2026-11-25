@@ -74,7 +74,9 @@ A run folder holds:
   **Agreement** (exact matches, within 1 point, average gap — one row per metric for train, and for test once it is
   scored), **Items** (every submission with its split, reference and scores), and the versions, rounds, checklist,
   judge notes and edits;
-- `final_prompt.md`, `report.json` (train and test numbers per metric, the version lineage, every version's section);
+- `final_prompt.md`, `report.json` (train and test numbers per metric, the version lineage, every version's section,
+  what the run spent);
+- `spend.json` (USD and tokens per model, kept up to date after every model call);
 - `setup/split.json` (which ids are train and test), `debug.txt`;
 - with several metrics, one `metrics/<key>/` folder per metric, holding every version (`versions/vN/prompt.md`,
   `change.md`), plus `composed/` and `polish/`.
@@ -126,11 +128,19 @@ All options (`uv run refiner --help` prints the same list; the defaults live in 
 | `--n` | all | use only the first N submissions (fixed at preparation) |
 | `--split` | `80/20` | train/test share; the rubric is tuned on train only, test is scored once at the end (`100/0` = no holdout) |
 | `--seed` | `0` | which submissions go to train and test |
+| `--budget` | none | USD: stop at the next round boundary once this much is spent (best version kept); no model call starts above 1.25 × budget |
 | `--workers` | `24` | parallel model calls |
 | `--prepare` | off | set up only and print the setup |
 
 `--model` and `--scorer` take any model in `models.yaml` (or any name the providers route by prefix); `--effort`
 works the same way for all of them.
+
+**Cost.** Every model response is priced from `models.yaml` (`pricing.response`, USD per million tokens; cache
+writes 1.25×, cache reads 0.1×) and added to `<run>/spend.json`, which a resume continues from. The total shows in
+`run_status`, `report.json` (`meta.spent`), the `version.verdict` / `metric.stopped` events and the log lines. A
+model with no price in the catalog is counted in tokens but costs $0, and the run says so at the end — add its price
+before trusting the total. `--budget` stops the run at the next round boundary once spent and refuses any new model
+call above 1.25 × budget; rerun with a higher budget to resume.
 
 From Python, with the same options as `RunConfig` fields:
 
