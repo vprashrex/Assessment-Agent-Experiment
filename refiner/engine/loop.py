@@ -189,7 +189,7 @@ def decide(exact_best: float, mae_best: float, first: dict, words_best: int, wor
     return gate
 
 
-def simplify(run: Run, a, st: dict, checklist: dict, score_items, editable: tuple[str, ...], words, metrics, N, ev, gm) -> str | None:
+def simplify(run: Run, a, st: dict, checklist: dict, score_items, out: dict, editable: tuple[str, ...], words, metrics, N, ev, gm) -> str | None:
     """The shrink loop once refinement stops: the generator only merges and shortens the best version's editable
     text (MODE: SIMPLIFY), pass after pass, and each shorter version is kept while the exact matches hold. It
     stops the first time compression costs accuracy — the sweet point is measured, not set. Returns the new best,
@@ -388,7 +388,7 @@ def refine(run: Run, a, setup: dict, items: list[dict], editable: tuple[str, ...
                else f"target reached — MAE {mae_best} ≤ {a.target}" if a.target is not None and mae_best <= a.target
                else f"no improvement in {a.patience} rounds" if st["fails"] >= a.patience else None)
         if why:
-            best = simplify(run, a, st, checklist, score_items, editable, words, metrics, N, ev, gm) or best
+            best = simplify(run, a, st, checklist, score_items, out, editable, words, metrics, N, ev, gm) or best
             # why the loop stopped where it did, in plain language, measured by code (math_tool.diagnose)
             flips = flip_n = 0
             for v in st["versions"]:
