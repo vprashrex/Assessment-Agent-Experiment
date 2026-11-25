@@ -102,13 +102,13 @@ def generate(chunks: list[dict], summary: dict, csv: str, dialogue: str, model: 
                 problems.append(prompts.render("problem_repetition", sample=repr(m.group(0)[:40])))
         return new, problems
 
-    gen = llm.call(model, prompts.system("generator"), user, GEN_SCHEMA, effort=effort)
+    gen = llm.call(model, prompts.system("generator"), user, GEN_SCHEMA, effort=effort, role="generator")
     new, problems = build(gen)
     for _ in range(RETRIES):
         if not problems:
             break
         gen = llm.call(model, prompts.system("generator"),
                        prompts.render("generator_retry", message=user, problems="; ".join(problems)),
-                       GEN_SCHEMA, effort=effort)
+                       GEN_SCHEMA, effort=effort, role="generator")
         new, problems = build(gen)
     return new, gen, problems

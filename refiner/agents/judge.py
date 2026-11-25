@@ -64,7 +64,8 @@ def review(rubric: str, items: list[dict], preds: dict, truths: dict, out: dict,
                               reference=_ref_text(t), error=_gap(p, t, out),
                               rationale=it.get("rationale") or prompts.USER["judge_no_rationale"])
         try:
-            return it["id"], llm.call(model, prompts.system("judge"), user, ITEM_SCHEMA, effort=effort, files=files_of(it))
+            return it["id"], llm.call(model, prompts.system("judge"), user, ITEM_SCHEMA, effort=effort, files=files_of(it),
+                                      role="judge")
         except llm.LLMError as e:
             return it["id"], {"direction": "aligned", "clause": "none", "comment": prompts.render("judge_review_unavailable", error=e)}
 
@@ -112,7 +113,7 @@ def summarise(rubric: str, version: str, versions: list[str], reviews: dict, err
                             clause=reviews[i]["clause"][:200], comment=reviews[i]["comment"]) for i in order]
     user = prompts.render("judge_summary", version=version, rubric=rubric, versions=versions, numbers=numbers,
                           checklist=checklist_text(checklist), change=change, notes="\n".join(notes))
-    return {**ROUND_DEFAULTS, **llm.call(model, prompts.system("judge"), user, SUMMARY_SCHEMA, effort=effort)}
+    return {**ROUND_DEFAULTS, **llm.call(model, prompts.system("judge"), user, SUMMARY_SCHEMA, effort=effort, role="judge")}
 
 
 def synthetic_reviews(errs: dict[str, float]) -> dict[str, dict]:

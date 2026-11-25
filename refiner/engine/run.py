@@ -37,6 +37,7 @@ def finish(run: Run) -> None:
     """The run's cost line, once, at the end of every path."""
     s = spend.snapshot()
     by = " · ".join(f"{m} ${v['usd']:.2f} ({v['calls']} calls)" for m, v in s["by_model"].items())
-    debug(run, f"=== SPENT ${s['usd']:.2f} · {by}" + (f" · no price in models.yaml for {', '.join(spend.unpriced())}: their cost is not counted"
-                                                        if spend.unpriced() else ""))
-    print(f"SPENT ${s['usd']:.2f} · {by}", flush=True)
+    roles = " · ".join(f"{r} {100 * v['usd'] / s['usd']:.0f}%" for r, v in s["by_role"].items()) if s["usd"] else ""
+    debug(run, f"=== SPENT ${s['usd']:.2f} · {by} · by role: {roles}"
+               + (f" · no price in models.yaml for {', '.join(spend.unpriced())}: their cost is not counted" if spend.unpriced() else ""))
+    print(f"SPENT ${s['usd']:.2f} · {by} · by role: {roles}", flush=True)

@@ -54,7 +54,7 @@ def parse(df: pd.DataFrame, context: str, rubric: str, schema: dict | None, mode
     user = prompts.render("parser", context=context.strip() or prompts.USER["parser_no_notes"], rubric=numbered(rubric),
                           schema=json.dumps(schema) if schema else "(none)",
                           columns=json.dumps(profile(df), ensure_ascii=False, indent=1))
-    setup = llm.call(model, prompts.system("parser"), user, SETUP_SCHEMA, effort=effort)
+    setup = llm.call(model, prompts.system("parser"), user, SETUP_SCHEMA, effort=effort, role="parser")
     ms, q = setup["metrics"], setup["questions"]
     keys = [m["key"] for m in ms]
     if not ms or len(set(keys)) != len(keys):
