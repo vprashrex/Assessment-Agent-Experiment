@@ -18,7 +18,7 @@ rubric-refiner/
 │   ├── engine/          items (sheet -> items), split (train/test), loop, fanout (+ composer, polish, test pass), run,
 │   │                    report, events
 │   ├── mcp/             server.py (12 actions), routes.py (uploads, SSE, health, run files), inspect.py
-│   ├── prompts/         every prompt the refiner sends, nothing inline in code: system/, user.py, judge_tools.py, mcp.py
+│   ├── prompts/         every prompt the refiner sends, nothing inline in code: system/, user.py, mcp.py
 │   ├── utils/           helpers with no refiner logic: excel, documents, downloads, files, process
 │   ├── api.py           public functions: prepare, refine, start, stop, status, checklist, version_report, rubric, report
 │   ├── config.py        RunConfig + DEFAULTS + HELP: the one source of options, defaults and help text for the CLI,
@@ -56,8 +56,8 @@ Rerunning the same command resumes the run. A cheap smoke test is `--n 6 --round
 - **Generic only.** No programme names, metric names, column names or domain examples in code or prompts. The
   parser decides columns and layers; code stays agnostic.
 - **Every prompt lives in `refiner/prompts/`**, one file each: an agent's system prompt in `system/`, the message a
-  call sends in `user.py` (a template; `agents/` fills its `{placeholders}`), the judge's tool descriptions in
-  `judge_tools.py`, the server's instructions and action descriptions in `mcp.py`. Code loads them and never holds
+  call sends in `user.py` (a template; `agents/` fills its `{placeholders}`), the server's instructions and action
+  descriptions in `mcp.py`. Code loads them and never holds
   prompt text itself. Keep them generic and plain.
 - **The generator never sees reference values.** It gets the judge's diagnosis, the checklist and a per-item
   table with directions and error sizes only. The judge's prompt forbids leaking reference values.
@@ -65,8 +65,9 @@ Rerunning the same command resumes the run. A cheap smoke test is `--n 6 --round
   (shared scoring logic: gates, decision order, tie-breaks) as a whole, before the per-metric loops (fan-out) or in
   the same loop (one metric). Program, notes and output stay word for word; code refuses edits to locked text and
   asserts it unchanged before a candidate is saved.
-- **All maths is deterministic Python in `agents/math_tool.py`.** The judge measures through tool calls to the same
-  functions the gate uses. The judge cannot change thresholds; tool schemas do not expose z or the ratio.
+- **All maths is deterministic Python in `agents/math_tool.py`.** The judge measures nothing: code writes the
+  version's numbers into its prompt and, after it names issues, measures each one (`update_checklist`). No tool
+  loop, no thresholds in the judge's hands.
 - **Agreement with the reference is the target**: MAE, bias, within ±1, within ±2, exact matches. Scatter and
   the flip count between two passes are diagnostics (`volatility`, `diagnose`), never gate criteria.
 - **Train only, until the end.** The split (`engine/split.py`, `setup/split.json`, drawn once) decides which items

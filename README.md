@@ -58,7 +58,7 @@ rubric-refiner/
 │   ├── agents/          parser, scorer, judge, generator, layers, math_tool, llm, models, providers/
 │   ├── engine/          items, split, loop, fanout (+ composer, polish, test pass), run, report, events
 │   ├── mcp/             server.py (actions), routes.py (HTTP), inspect.py
-│   ├── prompts/         every prompt: system/, user.py, judge_tools.py, mcp.py
+│   ├── prompts/         every prompt: system/, user.py, mcp.py
 │   ├── utils/           excel, documents, downloads, files, process
 │   ├── api.py           prepare, refine, start, stop, status, checklist, version_report, rubric, report
 │   ├── config.py        RunConfig + DEFAULTS + HELP, shared by the CLI, the API and the MCP server

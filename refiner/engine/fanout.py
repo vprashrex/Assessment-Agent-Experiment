@@ -116,8 +116,6 @@ def refine_procedure(run: Run, a, setup: dict, items: list[dict]) -> None:
     mae = lambda ver: M.alignment(E(ver), None, kind).get("mae", 1e9)  # noqa: E731
     N = lambda ver: M.summary(E(ver), kind)  # noqa: E731
     words = lambda ver: agents.editable_words(sub.read(V(ver, "chunks.json")), ed)  # noqa: E731
-    pair_refs = {f"{k}:{i}": x for k in outs for i, x in refs_by[k].items()}
-    tools = agents.tools(E, pair_refs, kind)
 
     st = sub.read("state.json") or {"round": 0, "best": "v0", "fails": 0, "versions": ["v0"], "changes": {}, "sent": False}
     checklist = sub.read("checklist.json", {})
@@ -139,10 +137,9 @@ def refine_procedure(run: Run, a, setup: dict, items: list[dict]) -> None:
             return
         errs = E(best)
         reviews = agents.synthetic_reviews(errs)
-        tool_log: list = []
         summ = agents.summarise(agents.annotated(sub.read(V(best, "chunks.json")), ed), best, st["versions"], reviews,
-                                errs, out_t, st.get("last_change", prompts.render("last_change_shared")), sub.read("dialogue.md", ""),
-                                checklist, tools, tool_log, **jm)
+                                errs, out_t, st.get("last_change", prompts.render("last_change_shared")),
+                                numbers(M.alignment(errs, None, kind), out_t), checklist, **jm)
         update_checklist(checklist, summ["issues"], rnd0, best, errs, set(errs) | {p for k in outs for p in
                                                                                    (f"{k}:{i}" for i in refs_by[k])})
         sub.write("checklist.json", checklist)

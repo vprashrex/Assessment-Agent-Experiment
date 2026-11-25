@@ -35,10 +35,7 @@ USER = {
     ),
 
     # ---------- judge, round: one submission's note in the summary call ----------
-    'judge_note': (
-        '[{id}] {direction} ({size})\n   observations: {observations}\n'
-        '   model reasoning: {model_reasoning}\n   clause: {clause}\n   comment: {comment}'
-    ),
+    'judge_note': '[{id}] {direction} ({size}) · clause: {clause} · {comment}',
 
     # ---------- judge, round: what happened to the last candidate (the loop writes it, the judge reads it) ----------
     'last_change_baseline': '(baseline — no edit yet)',
@@ -115,17 +112,17 @@ USER = {
         '\n'
         'VERSIONS SCORED SO FAR: {versions}\n'
         '\n'
+        'MEASURED NUMBERS OF {version} (by code, on the training items):\n'
+        '{numbers}\n'
+        '\n'
         'ISSUE CHECKLIST FROM EARLIER ROUNDS:\n'
         '{checklist}\n'
         '\n'
         'WHAT CHANGED SINCE LAST ROUND:\n'
         '{change}\n'
         '\n'
-        'NOTES ON EVERY SUBMISSION, scored with {version}:\n'
-        '{notes}\n'
-        '\n'
-        'DIALOGUE SO FAR:\n'
-        '{dialogue}'
+        'NOTES ON EVERY SUBMISSION, scored with {version} (missed first, then matched):\n'
+        '{notes}'
     ),
 
     # ---------- generator: the next version, from the judge's overview, summary, checklist and per-item table ----------

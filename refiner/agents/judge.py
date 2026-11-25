@@ -1,22 +1,20 @@
-"""The judge: explains each item's miss (ITEM), then summarises the round into issues (SUMMARY), measuring with
-math_tool through tool calls. It never sees or changes thresholds."""
+"""The judge: explains each item's miss (ITEM), then diagnoses the round into issues (SUMMARY). It writes no
+numbers of its own: code hands it the measured numbers and afterwards measures every issue it names
+(engine/loop.update_checklist). One call per item, one call per round, no tool loop."""
 
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable
+from typing import Any
 
 from .. import prompts
-from ..prompts.judge_tools import JUDGE_TOOLS
 from . import llm
-from . import math_tool as M
 from .layers import files_of
 
 ITEM_SCHEMA = {"type": "object", "properties": {
-    "observations": {"type": "string"}, "model_reasoning": {"type": "string"},
     "direction": {"type": "string", "enum": ["too_high", "too_low", "aligned"]},
     "clause": {"type": "string"}, "comment": {"type": "string"}},
-    "required": ["observations", "model_reasoning", "direction", "clause", "comment"]}
+    "required": ["direction", "clause", "comment"]}
 
 SUMMARY_SCHEMA = {"type": "object", "properties": {
     "overview": {"type": "string"},
@@ -24,20 +22,17 @@ SUMMARY_SCHEMA = {"type": "object", "properties": {
         "id": {"type": "string"},
         "title": {"type": "string"},
         "root_cause": {"type": "string"},
-        "what_items": {"type": "string"},
         "direction": {"type": "string", "enum": ["too_high", "too_low"]},
         "items": {"type": "array", "items": {"type": "string"}},
         "clause": {"type": "string"},
-        "fix": {"type": "string"},
-        "status_note": {"type": "string"}},
-        "required": ["id", "title", "root_cause", "what_items", "direction", "items", "clause", "fix", "status_note"]}},
-    "locked": {"type": "array", "items": {"type": "object", "properties": {
-        "layer": {"type": "string"}, "clause": {"type": "string"}, "items": {"type": "array", "items": {"type": "string"}},
-        "why": {"type": "string"}}, "required": ["layer", "clause", "items", "why"]}},
-    "mode": {"type": "string", "enum": ["edit", "rewrite"]},
-    "rewrite_brief": {"type": "string"},
+        "fix": {"type": "string"}},
+        "required": ["id", "title", "root_cause", "direction", "items", "clause", "fix"]}},
     "summary": {"type": "string"}},
-    "required": ["overview", "issues", "locked", "mode", "rewrite_brief", "summary"]}
+    "required": ["overview", "issues", "summary"]}
+
+# what the loop and the generator still read from a round but the judge no longer decides: the loop always
+# edits (a rewrite never fired in 367 measured rounds) and locked-layer causes show up as `clause: none`
+ROUND_DEFAULTS = {"mode": "edit", "rewrite_brief": "", "locked": []}
 
 
 def _gap(pred: Any, truth: Any, out: dict) -> str:  # display only
@@ -62,7 +57,7 @@ def _ref_text(truth: Any) -> Any:  # display only
 
 def review(rubric: str, items: list[dict], preds: dict, truths: dict, out: dict, model: str, effort: str,
            workers: int) -> dict[str, dict]:
-    """One judge call per item with an output; returns id -> {observations, model_reasoning, direction, clause, comment}."""
+    """One judge call per item with an output; returns id -> {direction, clause, comment}."""
     def one(it: dict) -> tuple[str, dict]:
         p, t = preds.get(it["id"]), truths.get(it["id"])
         user = prompts.render("judge_item", rubric=rubric, submission=it["input"][:30000], output=p,
@@ -71,8 +66,7 @@ def review(rubric: str, items: list[dict], preds: dict, truths: dict, out: dict,
         try:
             return it["id"], llm.call(model, prompts.system("judge"), user, ITEM_SCHEMA, effort=effort, files=files_of(it))
         except llm.LLMError as e:
-            return it["id"], {"observations": "", "model_reasoning": "", "direction": "aligned", "clause": "none",
-                              "comment": prompts.render("judge_review_unavailable", error=e)}
+            return it["id"], {"direction": "aligned", "clause": "none", "comment": prompts.render("judge_review_unavailable", error=e)}
 
     todo = [it for it in items if preds.get(it["id"]) is not None and truths.get(it["id"]) is not None]
     with ThreadPoolExecutor(workers) as ex:
@@ -108,43 +102,24 @@ def checklist_text(issues: dict[str, dict]) -> str:
     return "\n".join(out)
 
 
-def summarise(rubric: str, version: str, versions: list[str], reviews: dict, errs: dict, out: dict, change: str, dialogue: str,
-              checklist: dict[str, dict], tools: llm.Tools, tool_log: list, model: str, effort: str) -> dict:
-    notes = [prompts.render("judge_note", id=i, direction=r["direction"], size=_size(errs.get(i), out), observations=r.get("observations", ""),
-                            model_reasoning=r.get("model_reasoning", ""), clause=r["clause"][:200], comment=r["comment"])
-             for i, r in sorted(reviews.items())]
-    user = prompts.render("judge_summary", version=version, rubric=rubric, versions=versions,
-                          checklist=checklist_text(checklist), change=change, notes="\n".join(notes),
-                          dialogue=dialogue[-20000:] or "(none)")
-    return llm.call(model, prompts.system("judge"), user, SUMMARY_SCHEMA, effort=effort, tools=tools, tool_log=tool_log)
-
-
-def tools(E: Callable[[str], dict], refs: dict, kind: str) -> llm.Tools:
-    """The judge's measuring tools, bound to one loop: `E(version)` gives that version's errors (item id -> error,
-    or pair id in the shared stages), `refs` the matching references. Descriptions live in prompts/judge_tools.py;
-    the schemas expose neither z nor the ratio."""
-    ids = {"type": "array", "items": {"type": "string"}}
-    ver = {"type": "string"}
-    J = JUDGE_TOOLS.__getitem__
-    return {
-        "alignment": (J("alignment"), {"type": "object", "properties": {"version": ver, "ids": ids}, "required": ["version"]},
-                      lambda version, ids=None: M.alignment(E(version), ids, kind)),
-        "item_errors": (J("item_errors"), {"type": "object", "properties": {"version": ver, "ids": ids}, "required": ["version"]},
-                        lambda version, ids=None: {i: x for i, x in E(version).items() if not ids or i in ids}),
-        "compare": (J("compare"), {"type": "object", "properties": {"old": ver, "new": ver}, "required": ["old", "new"]},
-                    lambda old, new: M.compare(E(old), E(new))),
-        "pattern_check": (J("pattern_check"), {"type": "object", "properties": {"version": ver, "ids": ids}, "required": ["version", "ids"]},
-                          lambda version, ids: M.pattern_check(E(version), ids)),
-        "volatility": (J("volatility"), {"type": "object", "properties": {"version": ver}, "required": ["version"]},
-                       lambda version: M.volatility(E(version), refs)),
-    }
+def summarise(rubric: str, version: str, versions: list[str], reviews: dict, errs: dict, out: dict, change: str,
+              numbers: str, checklist: dict[str, dict], model: str, effort: str) -> dict:
+    """The round's diagnosis from every item's note, the measured numbers (`numbers`, a line code wrote) and the
+    checklist. One call, no tools: the judge names issues and their items, code measures them afterwards.
+    Missed items come first, then the aligned ones (what the rubric gets right is evidence too)."""
+    order = sorted(reviews, key=lambda i: (errs.get(i) in (0, 0.0, None), i))
+    notes = [prompts.render("judge_note", id=i, direction=reviews[i]["direction"], size=_size(errs.get(i), out),
+                            clause=reviews[i]["clause"][:200], comment=reviews[i]["comment"]) for i in order]
+    user = prompts.render("judge_summary", version=version, rubric=rubric, versions=versions, numbers=numbers,
+                          checklist=checklist_text(checklist), change=change, notes="\n".join(notes))
+    return {**ROUND_DEFAULTS, **llm.call(model, prompts.system("judge"), user, SUMMARY_SCHEMA, effort=effort)}
 
 
 def synthetic_reviews(errs: dict[str, float]) -> dict[str, dict]:
     """Review rows from the numbers alone, for the shared stages that run no per-item judge: every missed pair
     (`<metric>:<item>`) with its direction and size."""
-    return {pid: {"direction": "too_high" if e > 0 else "too_low", "observations": "", "model_reasoning": "",
-                  "clause": "", "comment": prompts.render("synthetic_review", metric=pid.split(":", 1)[0], size=f"{abs(e):g}")}
+    return {pid: {"direction": "too_high" if e > 0 else "too_low", "clause": "",
+                  "comment": prompts.render("synthetic_review", metric=pid.split(":", 1)[0], size=f"{abs(e):g}")}
             for pid, e in sorted(errs.items()) if e}
 
 

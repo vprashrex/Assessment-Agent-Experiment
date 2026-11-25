@@ -3,7 +3,6 @@ the prompts can be read, reviewed and evaluated in one place.
 
     system/          each agent's system prompt (parser, judge, generator); the scorer's system prompt is the rubric
     user.py          the message each model call sends, a template whose {placeholders} agents/ fills
-    judge_tools.py   descriptions of the measuring tools the judge may call
     mcp.py           what the Chat Agent reads about this server: its instructions and one description per action
 
 CLAUDE.md lists every prompt, the call that sends it and the fields it is filled with.

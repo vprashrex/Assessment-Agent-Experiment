@@ -7,7 +7,7 @@
 """
 
 from .generator import generate
-from .judge import review, summarise, synthetic_reviews, table, tools
+from .judge import review, summarise, synthetic_reviews, table
 from .layers import (EDITABLE, LAYERS, PROCEDURE, annotated, assemble, editable_words, kind_of, layout, metrics_of, reference,
                      refs_by)
 from .parser import parse
@@ -15,5 +15,5 @@ from .scorer import score, score_all
 
 __all__ = [
     "EDITABLE", "LAYERS", "PROCEDURE", "annotated", "assemble", "editable_words", "generate", "kind_of", "layout", "metrics_of",
-    "parse", "reference", "refs_by", "review", "score", "score_all", "summarise", "synthetic_reviews", "table", "tools",
+    "parse", "reference", "refs_by", "review", "score", "score_all", "summarise", "synthetic_reviews", "table",
 ]

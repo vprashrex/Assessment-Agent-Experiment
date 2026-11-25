@@ -99,8 +99,7 @@ def version_sheets(ver: str, metrics: dict, items: list[dict], scores: dict, ref
     for it in items:
         i, n = it["id"], notes.get(it["id"], {})
         rows.append({"id": i, "reference": refs.get(i), "output": scores.get(i), "error": errs.get(i),
-                     "direction": n.get("direction", ""), "observations": n.get("observations", ""),
-                     "model_reasoning": n.get("model_reasoning", ""), "clause": n.get("clause", ""),
+                     "direction": n.get("direction", ""), "clause": n.get("clause", ""),
                      "comment": n.get("comment", ""), "files": it.get("files", [])})
     sheets = {"Metrics": [{"version": ver, **metrics}], "Items": rows,
               "Prompt": [{"part": k, "layer": c["layer"], "editable": c["layer"] == "metrics", "text": c["text"]}
@@ -137,7 +136,7 @@ def run_sheets(versions: list[dict], items: list[dict], refs: dict, scores: dict
                    "root_cause": x["root_cause"], "clause": x["clause"], "fix": x["fix"],
                    **{f"r{r}": next((f"{e['status']} ({e['mean_error']:+.2f})" for e in x["history"] if e["round"] == r), "")
                       for r in rnds}} for k, x in checklist.items()]
-    note_rows = [{"version": v, "id": i, **{k: n.get(k, "") for k in ("direction", "observations", "model_reasoning", "clause", "comment")}}
+    note_rows = [{"version": v, "id": i, **{k: n.get(k, "") for k in ("direction", "clause", "comment")}}
                  for v in vs for i, n in sorted(notes.get(v, {}).items())]
     edit_rows = [{"version": v, "verdict": c.get("verdict", ""), "from": c.get("parent", ""), "issue": e["issue"],
                   "op": e.get("op", "replace"), "old_text": e["old_text"], "new_text": e["new_text"]}

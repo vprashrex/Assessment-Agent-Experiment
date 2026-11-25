@@ -299,7 +299,6 @@ def refine(run: Run, a, setup: dict, items: list[dict], editable: tuple[str, ...
             numbers_of[ver] = M.summary(M.item_errors(run.read(V(ver, "scores_test.json")), refs_test, kind), kind)
         return numbers_of
 
-    tools = agents.tools(E, refs_train, kind)  # the judge measures train only
 
     st = run.read("state.json") or {"round": 0, "best": "v0", "fails": 0, "versions": ["v0"], "by_item": {},
                                      "last_change": prompts.render("last_change_baseline"), "rounds": [], "changes": {}}
@@ -346,9 +345,8 @@ def refine(run: Run, a, setup: dict, items: list[dict], editable: tuple[str, ...
             write_version_excel(best)
 
         # ---- judge: holistic diagnosis + checklist ----
-        tool_log: list = []
         summ = agents.summarise(agents.annotated(run.read(V(best, "chunks.json")), editable), best, st["versions"], rv, errs, out,
-                                st["last_change"], run.read("dialogue.md", ""), checklist, tools, tool_log, **jm)
+                                st["last_change"], numbers(metrics(best), out), checklist, **jm)
         bad = [x for x in summ["issues"] if not x.get("title")]
         if bad:
             debug(run, f"judge returned {len(bad)} issue(s) without all fields: {json.dumps(bad)[:400]}")
@@ -381,8 +379,7 @@ def refine(run: Run, a, setup: dict, items: list[dict], editable: tuple[str, ...
                         f"      cause: {c['root_cause']}\n      clause: {' '.join(c['clause'].split())[:160]}\n      fix: {c['fix']}\n"
                         f"      judge: {c.get('status_note', '')}\n" for k, c in checklist.items())
               + "".join(f"LOCKED FLAG ({x['layer']}, for the program owner) · items {', '.join(x['items'])}\n"
-                        f"   clause: {' '.join(x['clause'].split())[:160]}\n   why: {x['why']}\n" for x in summ["locked"])
-              + "".join(f"tool: {t['tool']}({json.dumps(t['args'])}) → {json.dumps(t['result'])[:300]}\n" for t in tool_log))
+                        f"   clause: {' '.join(x['clause'].split())[:160]}\n   why: {x['why']}\n" for x in summ["locked"]))
         run.write("state.json", st)
         write_run_excel()
 
