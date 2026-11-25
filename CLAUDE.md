@@ -99,8 +99,10 @@ Rerunning the same command resumes the run. A cheap smoke test is `--n 6 --round
   resolved and real again → reopened.
 - Stop: round ceiling (8), target MAE, 4 rejected rounds in a row, or `--budget` reached (checked at every round
   boundary, in the fan-out stages too). Spend: `agents/spend.py` prices every provider response from `models.yaml`
-  (retries and tool turns included), mirrors the ledger to `<run>/spend.json`, and `llm.call` refuses any call above
-  1.25 × budget (`BudgetExceeded`). An unpriced model counts as $0 and is named in the SPENT line — add its price.
+  (retries and tool turns included), per model and per role, mirrors the ledger to `<run>/spend.json`, and `llm.call` refuses any call above
+  1.25 × budget (`BudgetExceeded`) while a loop runs; the fixed-size end work (test pass, composer, polish) runs
+  under `llm.uncapped()` so a stopped run still ends with its outputs, and the shrink loop is skipped. An unpriced
+  model counts as $0 and is named in the SPENT line — add its price.
 - Models lock when refinement starts: `<run>/models.json` (parser, judge, generator, scorer, effort); a resume with
   other models is refused (`api.lock_models`), so every version is scored by the same models. Only the UI's chat
   agent model can change mid-run.
@@ -129,6 +131,7 @@ Rerunning the same command resumes the run. A cheap smoke test is `--n 6 --round
 - Claude Desktop starts servers with a short PATH; its config uses the absolute path to `uv`.
 - Items store attachment paths relative to the project root (older runs) or absolute (newer runs); both resolve.
 - Run folders from before the split have no `setup/split.json`: every reader treats them as all-train, no test.
-- Git history: commits `cb27646`, `591c220`, `9cbe4c4`, `ec16b19`, `dfebfe9` (on `origin/feat/code-update`) carry
-  programme prompts and sheets from before the `z_assessment/` rule. HEAD is clean; the history has not been
-  rewritten (owner's call). Do not cherry-pick or revive files from those commits.
+- Git history: the commits on `feat/code-update` that carried programme prompts and sheets from before the
+  `z_assessment/` rule were rewritten with `git filter-repo` and force-pushed on 2026-11-23; a mirror of the old
+  history is kept outside the repo (`~/Desktop/rubric-refiner-backup-20261123.git`). Clones from before that date
+  must be re-cloned, not rebased. Do not revive files from the old history.
