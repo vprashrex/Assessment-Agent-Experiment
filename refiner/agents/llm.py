@@ -7,25 +7,47 @@ runs the Python function, sends the result back, and repeats until the model ret
 
 from __future__ import annotations
 
+import contextvars
 import json
 import time
+from contextlib import contextmanager
 
 from . import models, providers, spend
 from .providers.base import Files, LLMError, Tools
 
-__all__ = ["Files", "LLMError", "Tools", "call", "HARD_CAP"]
+__all__ = ["Files", "LLMError", "Tools", "call", "HARD_CAP", "uncapped"]
 
 HARD_CAP: dict[str, float | None] = {"usd": None}  # set by engine/run: budget × HARD_FACTOR; no call starts above it
+_UNCAPPED: contextvars.ContextVar[bool] = contextvars.ContextVar("uncapped", default=False)
+
+
+@contextmanager
+def uncapped():
+    """Lifts the hard cap for the fixed-size work after the loops have stopped (the test pass, the composer, polish —
+    which stops at its next round boundary anyway), so a run that reached its budget still ends with its outputs.
+    Per thread: the metric loops still running in parallel stay capped. `scorer.score_all` carries the flag into
+    its worker threads."""
+    token = _UNCAPPED.set(True)
+    try:
+        yield
+    finally:
+        _UNCAPPED.reset(token)
 
 
 def call(model: str, system: str, user: str, schema: dict, *, effort: str = "high",
          tools: Tools | None = None, tool_log: list | None = None, files: Files | None = None,
-         tries: int = 4) -> dict:
+         tries: int = 4, role: str = "other") -> dict:
     """Structured JSON from any supported model; retries transport errors and invalid JSON with backoff.
-    Every tool call made is appended to `tool_log` as {tool, args, result}."""
+    Every tool call made is appended to `tool_log` as {tool, args, result}. `role` (parser, scorer, judge,
+    generator) is what the spend ledger charges the call to."""
+    with spend.role(role):
+        return _call(model, system, user, schema, effort, tools, tool_log, files, tries)
+
+
+def _call(model, system, user, schema, effort, tools, tool_log, files, tries) -> dict:
     last: Exception | None = None
     for i in range(tries):
-        if HARD_CAP["usd"] is not None and spend.total() >= HARD_CAP["usd"]:
+        if HARD_CAP["usd"] is not None and not _UNCAPPED.get() and spend.total() >= HARD_CAP["usd"]:
             raise spend.BudgetExceeded(f"spent ${spend.total():.2f}, hard cap ${HARD_CAP['usd']:.2f}: no new model call "
                                        f"(rerun with a higher --budget to resume)")
         log: list = []

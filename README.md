@@ -76,7 +76,8 @@ A run folder holds:
   judge notes and edits;
 - `final_prompt.md`, `report.json` (train and test numbers per metric, the version lineage, every version's section,
   what the run spent);
-- `spend.json` (USD and tokens per model, kept up to date after every model call);
+- `spend.json` (USD and tokens per model and per role — parser, scorer, judge, generator — kept up to date after
+  every model call);
 - `setup/split.json` (which ids are train and test), `debug.txt`;
 - with several metrics, one `metrics/<key>/` folder per metric, holding every version (`versions/vN/prompt.md`,
   `change.md`), plus `composed/` and `polish/`.
@@ -139,8 +140,10 @@ works the same way for all of them.
 writes 1.25×, cache reads 0.1×) and added to `<run>/spend.json`, which a resume continues from. The total shows in
 `run_status`, `report.json` (`meta.spent`), the `version.verdict` / `metric.stopped` events and the log lines. A
 model with no price in the catalog is counted in tokens but costs $0, and the run says so at the end — add its price
-before trusting the total. `--budget` stops the run at the next round boundary once spent and refuses any new model
-call above 1.25 × budget; rerun with a higher budget to resume.
+before trusting the total. `--budget` stops every loop at its next round boundary once spent (the best version is
+kept, the shrink loop is skipped) and refuses any new model call above 1.25 × budget while a loop runs; the end work
+(the composer, the test pass, the report) still runs to completion, so the run ends with its outputs. Rerun with a
+higher budget to continue.
 
 From Python, with the same options as `RunConfig` fields:
 

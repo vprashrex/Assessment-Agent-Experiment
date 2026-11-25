@@ -3,6 +3,7 @@ is the rubric itself."""
 
 from __future__ import annotations
 
+import contextvars
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -46,13 +47,15 @@ def score_all(rubric: str, items: list[dict], outs: dict[str, dict], model: str,
     def one(it: dict) -> tuple[str, dict]:
         try:
             answer = llm.call(model, rubric, prompts.render("scorer", submission=it["input"]), schema, effort=effort,
-                              files=files_of(it))
+                              files=files_of(it), role="scorer")
         except llm.LLMError:
             answer = {}
         return it["id"], answer
 
+    # each worker runs in a copy of the caller's context, so llm.uncapped() (set by the end-of-run work) reaches it
+    jobs = [(contextvars.copy_context(), it) for it in items]
     with ThreadPoolExecutor(workers) as ex:
-        answers = dict(ex.map(one, items))
+        answers = dict(ex.map(lambda j: j[0].run(one, j[1]), jobs))
     if raw is not None:
         raw.update(answers)
     return {k: {i: parse_output(a, o) for i, a in answers.items()} for k, o in outs.items()}

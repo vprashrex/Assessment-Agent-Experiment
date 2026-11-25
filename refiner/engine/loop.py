@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .. import agents, prompts
-from ..agents import spend
+from ..agents import llm, spend
 from ..agents import math_tool as M
 from ..agents import reference
 from ..utils import excel
@@ -386,13 +386,16 @@ def refine(run: Run, a, setup: dict, items: list[dict], editable: tuple[str, ...
         write_run_excel()
 
         mae_best = metrics(best).get("mae", 1e9)
+        over = a.budget is not None and spend.total() >= a.budget
         why = (f"ceiling — {a.rounds} round{'s' * (a.rounds != 1)}" if rnd0 >= a.rounds
                else f"target reached — MAE {mae_best} ≤ {a.target}" if a.target is not None and mae_best <= a.target
                else f"no improvement in {a.patience} rounds" if st["fails"] >= a.patience
-               else f"budget reached — spent ${spend.total():.2f} of ${a.budget:.2f}" if a.budget is not None and spend.total() >= a.budget
+               else f"budget reached — spent ${spend.total():.2f} of ${a.budget:.2f}" if over
                else None)
         if why:
-            best = simplify(run, a, st, checklist, score_items, out, editable, words, metrics, N, ev, gm) or best
+            if over:  # the shrink loop is more rounds of model calls; over budget, the best version stands as it is
+                debug(run, f"--- shrink loop skipped: budget reached (${spend.total():.2f} of ${a.budget:.2f})")
+            best = (None if over else simplify(run, a, st, checklist, score_items, out, editable, words, metrics, N, ev, gm)) or best
             # why the loop stopped where it did, in plain language, measured by code (math_tool.diagnose)
             flips = flip_n = 0
             for v in st["versions"]:
@@ -412,7 +415,8 @@ def refine(run: Run, a, setup: dict, items: list[dict], editable: tuple[str, ...
             ev("metric.stopped", best=best, reason=why, rounds=rnd0, numbers=N(best), spent=spend.total())
             # the held-out items, scored once now that the rubric is final: the out-of-sample numbers
             if test:
-                t = score_test(sorted({"v0", st["best"]}))
+                with llm.uncapped():  # fixed-size end work: runs to completion even past the hard cap
+                    t = score_test(sorted({"v0", st["best"]}))
                 st["train"] = {"v0": N("v0"), st["best"]: N(st["best"])}
                 st["test"] = t
                 run.write("state.json", st)

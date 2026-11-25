@@ -29,7 +29,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .. import agents, prompts
-from ..agents import spend
+from ..agents import llm, spend
 from ..agents import math_tool as M
 from ..utils import excel
 from ..utils.excel import read_sheet
@@ -196,9 +196,10 @@ def main(run: Run, a, setup: dict, items: list[dict]) -> dict:
         f"{s[0].label} ({s[1]['truth_column']} → {s[1]['output']['field']}, {len(s[2])} items)" for s in subs))
     with ThreadPoolExecutor(len(subs)) as ex:  # one loop per metric, side by side
         best = dict(zip([s[0].label for s in subs], ex.map(lambda s: refine(s[0], a, s[1], s[2]), subs)))
-    compose(run, a, setup, items, [s[0] for s in subs])
-    polish(run, a, setup, items)
-    test_pass(run, a, setup, items)
+    with llm.uncapped():  # the loops have stopped: the fixed-size end work runs to completion even past the hard cap
+        compose(run, a, setup, items, [s[0] for s in subs])
+        polish(run, a, setup, items)  # a loop, but it stops at its next round boundary once over budget
+        test_pass(run, a, setup, items)
     from .run import finish  # the cost line (run.py imports fanout; a lazy import avoids the cycle)
     finish(run)
     report.write(run, a, setup, items)
