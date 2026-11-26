@@ -7,9 +7,9 @@
 #   model_name          the provider's model id
 #   label               name shown in the UI
 #   completion_type     what the model produces: text, tts, stt (empty for embeddings); decision = a decision API
-#                       (calibrated probabilities per level, no prose): the only kind the scorer may use
-#   roles               which agents may use it: agent (the chat), parser, judge, generator, scorer (decision
-#                       models only: the refiner tunes for the scorer production runs, and production decides).
+#                       (calibrated probabilities per level, no prose), usable as the scorer only
+#   roles               which agents may use it: agent (the chat), parser, judge, generator, scorer (the model
+#                       production scores with: generative by default, or a decision model).
 #                       Empty = not offered in the UI (speech and embedding models)
 #   tools               can call tools (the judge needs this)
 #   config              tunable settings, Kaapi style: type, default, options/min/max, description.
@@ -20,7 +20,7 @@
 #   pricing             USD per million tokens (response, batch, audio); null when not known
 #   is_active           false hides it
 
-defaults: {agent: claude-opus-5-5, parser: claude-sonnet-5-5, judge: claude-sonnet-5-5, generator: claude-sonnet-5-5, scorer: gemini-decision-1, effort: high}
+defaults: {agent: claude-opus-5-5, parser: claude-sonnet-5-5, judge: claude-sonnet-5-5, generator: claude-sonnet-5-5, scorer: claude-sonnet-5-5, effort: high}
 models:
 - provider: openai
   model_name: gpt-6-luna
@@ -50,7 +50,7 @@ models:
   model_name: claude-opus-5-5
   label: Claude Opus 5.5
   completion_type: [text]
-  roles: [agent, parser, judge, generator]
+  roles: [agent, parser, judge, generator, scorer]
   tools: true
   config:
     effort:
@@ -69,7 +69,7 @@ models:
   model_name: claude-sonnet-5-5
   label: Claude Sonnet 5.5
   completion_type: [text]
-  roles: [agent, parser, judge, generator]
+  roles: [agent, parser, judge, generator, scorer]
   tools: true
   config:
     effort:
@@ -88,7 +88,7 @@ models:
   model_name: claude-haiku-5-5
   label: Claude Haiku 5.5
   completion_type: [text]
-  roles: [agent, parser, judge, generator]
+  roles: [agent, parser, judge, generator, scorer]
   tools: true
   config:
     effort:
@@ -107,7 +107,7 @@ models:
   model_name: claude-fable-5-1
   label: Claude Fable 5.1
   completion_type: [text]
-  roles: [agent, parser, judge, generator]
+  roles: [agent, parser, judge, generator, scorer]
   tools: true
   config:
     effort:
@@ -126,7 +126,7 @@ models:
   model_name: claude-fable-5
   label: Claude Fable 5
   completion_type: [text]
-  roles: [agent, parser, judge, generator]
+  roles: [agent, parser, judge, generator, scorer]
   tools: true
   config:
     effort:
@@ -145,7 +145,7 @@ models:
   model_name: claude-sonnet-5
   label: Claude Sonnet 5
   completion_type: [text]
-  roles: [agent, parser, judge, generator]
+  roles: [agent, parser, judge, generator, scorer]
   tools: true
   config:
     effort:
@@ -164,7 +164,7 @@ models:
   model_name: claude-opus-4-8
   label: Claude Opus 4.8
   completion_type: [text]
-  roles: [agent, parser, judge, generator]
+  roles: [agent, parser, judge, generator, scorer]
   tools: true
   config:
     effort:
@@ -183,7 +183,7 @@ models:
   model_name: claude-sonnet-4-6
   label: Claude Sonnet 4.6
   completion_type: [text]
-  roles: [parser, judge, generator]
+  roles: [parser, judge, generator, scorer]
   tools: true
   config:
     temperature: {type: float, min: 0, max: 2, default: 1}
@@ -197,7 +197,7 @@ models:
   model_name: claude-haiku-4-5
   label: Claude Haiku 4.5
   completion_type: [text]
-  roles: [parser, judge, generator]
+  roles: [parser, judge, generator, scorer]
   tools: true
   config:
     temperature: {type: float, min: 0, max: 2, default: 1}
@@ -212,7 +212,7 @@ models:
   model_name: gpt-6.1-sol
   label: GPT-6.1 Sol
   completion_type: [text]
-  roles: [parser, judge, generator]
+  roles: [parser, judge, generator, scorer]
   tools: true
   config:
     effort:
@@ -234,7 +234,7 @@ models:
   model_name: gpt-5.6-sol
   label: GPT-5.6 Sol
   completion_type: [text]
-  roles: [parser, judge, generator]
+  roles: [parser, judge, generator, scorer]
   tools: true
   config:
     effort:
@@ -257,7 +257,7 @@ models:
   model_name: gpt-5.6-terra
   label: GPT-5.6 Terra
   completion_type: [text]
-  roles: [parser, judge, generator]
+  roles: [parser, judge, generator, scorer]
   tools: true
   config:
     effort:
@@ -280,7 +280,7 @@ models:
   model_name: gpt-5.6-luna
   label: GPT-5.6 Luna
   completion_type: [text]
-  roles: [parser, judge, generator]
+  roles: [parser, judge, generator, scorer]
   tools: true
   config:
     effort:
@@ -303,7 +303,7 @@ models:
   model_name: gpt-5.4-pro
   label: GPT-5.4 Pro
   completion_type: [text]
-  roles: [parser, judge, generator]
+  roles: [parser, judge, generator, scorer]
   tools: true
   config:
     effort:
@@ -326,7 +326,7 @@ models:
   model_name: gpt-5.4
   label: GPT-5.4
   completion_type: [text]
-  roles: [parser, judge, generator]
+  roles: [parser, judge, generator, scorer]
   tools: true
   config:
     effort:
@@ -349,7 +349,7 @@ models:
   model_name: gpt-5.4-mini
   label: GPT-5.4 mini
   completion_type: [text]
-  roles: [parser, judge, generator]
+  roles: [parser, judge, generator, scorer]
   tools: true
   config:
     effort:
@@ -372,7 +372,7 @@ models:
   model_name: gpt-5.4-nano
   label: GPT-5.4 nano
   completion_type: [text]
-  roles: [parser, judge, generator]
+  roles: [parser, judge, generator, scorer]
   tools: true
   config:
     effort:
@@ -395,7 +395,7 @@ models:
   model_name: gpt-5.2
   label: GPT-5.2
   completion_type: [text]
-  roles: [parser, judge, generator]
+  roles: [parser, judge, generator, scorer]
   tools: true
   config:
     effort:
@@ -418,7 +418,7 @@ models:
   model_name: gpt-5.1
   label: GPT-5.1
   completion_type: [text]
-  roles: [parser, judge, generator]
+  roles: [parser, judge, generator, scorer]
   tools: true
   config:
     effort:
@@ -441,7 +441,7 @@ models:
   model_name: gpt-5
   label: GPT-5
   completion_type: [text]
-  roles: [parser, judge, generator]
+  roles: [parser, judge, generator, scorer]
   tools: true
   config:
     effort:
@@ -464,7 +464,7 @@ models:
   model_name: gpt-5-mini
   label: GPT-5 mini
   completion_type: [text]
-  roles: [parser, judge, generator]
+  roles: [parser, judge, generator, scorer]
   tools: true
   config:
     effort:
@@ -487,7 +487,7 @@ models:
   model_name: gpt-5-nano
   label: GPT-5 nano
   completion_type: [text]
-  roles: [parser, judge, generator]
+  roles: [parser, judge, generator, scorer]
   tools: true
   config:
     effort:
@@ -510,7 +510,7 @@ models:
   model_name: gpt-4.1
   label: GPT-4.1
   completion_type: [text]
-  roles: [parser, judge, generator]
+  roles: [parser, judge, generator, scorer]
   tools: true
   config:
     top_p: {type: float, min: 0, max: 1, default: 1, description: 'Nucleus sampling. Use either this or temperature, not both.'}
@@ -526,7 +526,7 @@ models:
   model_name: gpt-4.1-mini
   label: GPT-4.1 mini
   completion_type: [text]
-  roles: [parser, judge, generator]
+  roles: [parser, judge, generator, scorer]
   tools: true
   config:
     top_p: {type: float, min: 0, max: 1, default: 1, description: 'Nucleus sampling. Use either this or temperature, not both.'}
@@ -542,7 +542,7 @@ models:
   model_name: gpt-4.1-nano
   label: GPT-4.1 nano
   completion_type: [text]
-  roles: [parser, judge, generator]
+  roles: [parser, judge, generator, scorer]
   tools: true
   config:
     top_p: {type: float, min: 0, max: 1, default: 1, description: 'Nucleus sampling. Use either this or temperature, not both.'}
@@ -558,7 +558,7 @@ models:
   model_name: gpt-4o
   label: GPT-4o
   completion_type: [text]
-  roles: [parser, judge, generator]
+  roles: [parser, judge, generator, scorer]
   tools: true
   config:
     top_p: {type: float, min: 0, max: 1, default: 1, description: 'Nucleus sampling. Use either this or temperature, not both.'}
@@ -574,7 +574,7 @@ models:
   model_name: gpt-4o-mini
   label: GPT-4o mini
   completion_type: [text]
-  roles: [parser, judge, generator]
+  roles: [parser, judge, generator, scorer]
   tools: true
   config:
     top_p: {type: float, min: 0, max: 1, default: 1, description: 'Nucleus sampling. Use either this or temperature, not both.'}
@@ -646,7 +646,7 @@ models:
   model_name: gemini-pro-latest
   label: Gemini Pro (latest)
   completion_type: [text]
-  roles: []
+  roles: [scorer]
   tools: false
   config:
     thinking_level:
@@ -663,7 +663,7 @@ models:
   model_name: gemini-flash-latest
   label: Gemini Flash (latest)
   completion_type: [text]
-  roles: []
+  roles: [scorer]
   tools: false
   config:
     thinking_level:
@@ -680,7 +680,7 @@ models:
   model_name: gemini-3.8-flash
   label: Gemini 3.8 Flash
   completion_type: [text]
-  roles: []
+  roles: [scorer]
   tools: false
   config:
     thinking_level:
@@ -697,7 +697,7 @@ models:
   model_name: gemini-3.5-flash-preview
   label: Gemini 3.5 Flash (preview)
   completion_type: [text]
-  roles: []
+  roles: [scorer]
   tools: false
   config:
     temperature: {type: float, min: 0, max: 2, default: 1, description: Controls randomness. Lower = more deterministic.}
@@ -716,7 +716,7 @@ models:
   model_name: gemini-3.1-pro-preview
   label: Gemini 3.1 Pro (preview)
   completion_type: [text]
-  roles: []
+  roles: [scorer]
   tools: false
   config:
     thinking_level:
@@ -735,7 +735,7 @@ models:
   model_name: gemini-3-flash-preview
   label: Gemini 3 Flash (preview)
   completion_type: [text]
-  roles: []
+  roles: [scorer]
   tools: false
   config:
     temperature: {type: float, min: 0, max: 2, default: 1, description: Controls randomness. Lower = more deterministic.}
@@ -755,7 +755,7 @@ models:
   model_name: gemini-3.1-flash-lite
   label: Gemini 3.1 Flash Lite
   completion_type: [text]
-  roles: []
+  roles: [scorer]
   tools: false
   config:
     thinking_level:
@@ -772,7 +772,7 @@ models:
   model_name: gemini-2.5-pro
   label: Gemini 2.5 Pro
   completion_type: [text]
-  roles: []
+  roles: [scorer]
   tools: false
   config:
     temperature: {type: float, min: 0, max: 2, default: 1, description: Controls randomness. Lower = more deterministic.}
@@ -787,7 +787,7 @@ models:
   model_name: gemini-2.5-flash
   label: Gemini 2.5 Flash
   completion_type: [text]
-  roles: []
+  roles: [scorer]
   tools: false
   config:
     temperature: {type: float, min: 0, max: 2, default: 1, description: Controls randomness. Lower = more deterministic.}
@@ -923,7 +923,7 @@ models:
   model_name: gemini-4-argon
   label: Gemini 4 Argon
   completion_type: [text]
-  roles: [generator]
+  roles: [generator, scorer]
   tools: false
   config:
     thinking_level:

@@ -41,11 +41,11 @@ flowchart LR
   only. The test items are scored once at the end, with the original and the final rubric, so their numbers are out
   of sample. `100/0` disables the holdout.
 - **Metric loops** (in parallel, one per metric), each seeing the locked layers and its own section only:
-  - **Scorer** scores every train submission with a decision model (OpenAI `gpt-6-luna` decisions or Google
-    `gemini-decision-1`), the kind production scores with: the rubric goes in as evidence, PDFs and images as
-    files, and one question per metric comes back as calibrated probabilities over the metric's levels. The most
-    likely level is the score; the expected value, the confidence and the distribution are kept beside it for the
-    judge. No prose, output tokens free: a call costs its input only.
+  - **Scorer** scores every train submission exactly as production does: the rubric is the system prompt, PDFs and
+    images go as files, and the model answers in the output schema. With a decision model instead (OpenAI
+    `gpt-6-luna` decisions or Google `gemini-decision-1`) the rubric goes in as evidence and one question per
+    metric comes back as calibrated probabilities over the metric's levels: the most likely level is the score, and
+    the expected value, the confidence and the distribution are kept beside it for the judge.
   - **Judge** reviews each miss against the reference and keeps an issue checklist; every number comes from
     deterministic code.
   - **Generator** edits the metric's section. It never sees reference values.
@@ -123,8 +123,8 @@ All options (`uv run refiner --help` prints the same list; the defaults live in 
 | `--run` | required | the run folder |
 | `--docs-dir` | none | local copies of linked files, matched by name |
 | `--model` | the `judge` default in `models.yaml` | model for every agent; the per-agent options override it |
-| `--scorer` | the `scorer` default in `models.yaml` | the **scorer**: a decision model (`gpt-6-luna`, `gemini-decision-1`), the one production uses; any other model is refused |
-| `--scorer-effort` | `low` | unused by decision models; kept in the model lock |
+| `--scorer` | same as `--model` | the **scorer**, the model production uses: any generative model, or a decision model (`gpt-6-luna`, `gemini-decision-1`) |
+| `--scorer-effort` | `low` | reasoning effort for the scorer alone (production scorers run lean); ignored by decision models |
 | `--parser-model`, `--judge-model`, `--generator-model` | same as `--model` | one agent's model |
 | `--effort` | `high` | reasoning effort for every other model: `low`, `medium`, `high` |
 | `--rounds` | `8` | most rounds per metric |
@@ -138,9 +138,9 @@ All options (`uv run refiner --help` prints the same list; the defaults live in 
 | `--prepare` | off | set up only and print the setup |
 
 `--model` and the per-agent options take any model in `models.yaml` (or any name the providers route by prefix);
-`--effort` works the same way for all of them. `--scorer` takes a decision model only. OpenAI's decisions take at
-most 10 score levels (a wider scale merges its lowest levels, said at preparation) and images only (a PDF goes
-as one image per page); Gemini's take PDFs and up to 255 levels.
+`--effort` works the same way for all of them. A decision scorer answers with probabilities instead of prose and
+costs its input only; OpenAI's decisions take at most 10 score levels (a wider scale merges its lowest levels,
+said at preparation) and images only (a PDF goes as one image per page); Gemini's take PDFs and up to 255 levels.
 
 **Cost.** Every model response is priced from `models.yaml` (`pricing.response`, USD per million tokens; cache
 writes 1.25×, cache reads 0.1×) and added to `<run>/spend.json`, which a resume continues from. The total shows in

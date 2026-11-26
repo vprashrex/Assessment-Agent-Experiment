@@ -57,8 +57,9 @@ TOOLS = {
     'start_run': (
         'Start (or resume) the refinement in the background; returns at once. The same files as'
         ' prepare_run. model is\nthe default for every agent; parser_model, judge_model, generator_model'
-        ' override it one by one; scorer is the decision model production scores with (gpt-6-luna or'
-        ' gemini-decision-1; no other model is accepted). Stop\nrules: rounds (most rounds per metric), patience'
+        ' and scorer override it one by one; scorer is the model production scores with (generative, or a'
+        ' decision model: gpt-6-luna, gemini-decision-1); scorer_effort sets the scoring model alone (default low).'
+        ' Stop\nrules: rounds (most rounds per metric), patience'
         ' (rejected rounds in a row), target (stop at this average gap on train), budget (USD: stop at the next'
         ' round once spent, best kept; run_status shows what was spent). split / seed as in prepare_run;'
         ' the values stored at preparation win on a resume.'

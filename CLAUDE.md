@@ -77,11 +77,12 @@ Rerunning the same command resumes the run. A cheap smoke test is `--n 6 --round
 - **Issue statuses are measured by code** (`update_checklist` in `engine/loop.py`), never declared by the judge.
 - **MCP uses the `fastmcp` package** (not the raw `mcp` SDK). Dependencies via uv. Long-running tools start
   background processes and return at once; Claude Desktop times out on long calls.
-- **The scorer is a decision model** (`completion_type: decision` in `models.yaml`: `gpt-6-luna` decisions,
-  `gemini-decision-1`), because production scores with one and the rubric is tuned for the scorer that will run it.
-  `RunConfig` refuses any other scorer; no generative model carries the `scorer` role. The rubric is the evidence,
-  one question per metric, the most likely level is the score; expected value, confidence and the distribution ride
-  in the item's answer (`providers/decisions.py`). Judge, generator and parser stay generative.
+- **The scorer is the model production scores with**, and production is generative (the rubric as system prompt, a
+  JSON answer; default `--model`), so the rubric is tuned on the same kind of call that will run it. A decision
+  model (`completion_type: decision` in `models.yaml`: `gpt-6-luna` decisions, `gemini-decision-1`) is an
+  alternative scorer for a programme that scores with one: the rubric is the evidence, one question per metric, the
+  most likely level is the score; expected value, confidence and the distribution ride in the item's answer
+  (`providers/decisions.py`). Measured 2026-11-25: the decision scorer agreed 13–17 points less than generative.
 - **Attachments go to models as files** (PDF and images), not only as extracted text (OpenAI decisions: a PDF as
   one image per page).
 - **Programme data stays in `z_assessment/`** (gitignored), never in tracked files: no sheets, contexts, prompts,
