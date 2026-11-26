@@ -4,7 +4,8 @@
 #
 # Fields
 #   provider            anthropic | openai | google | sarvamai | elevenlabs
-#   model_name          the provider's model id
+#   model_name          the catalog name, and the provider's model id unless api_name says otherwise
+#   api_name            the id sent to the API when it differs from model_name (one id served two ways)
 #   label               name shown in the UI
 #   completion_type     what the model produces: text, tts, stt (empty for embeddings); decision = a decision API
 #                       (calibrated probabilities per level, no prose), usable as the scorer only
@@ -23,7 +24,8 @@
 defaults: {agent: claude-opus-5-5, parser: claude-sonnet-5-5, judge: claude-sonnet-5-5, generator: claude-sonnet-5-5, scorer: claude-sonnet-5-5, effort: high}
 models:
 - provider: openai
-  model_name: gpt-6-luna
+  model_name: gpt-6-luna-decisions
+  api_name: gpt-6-luna  # the id sent to the API; the catalog name tells the decisions path from the generative one
   label: GPT-6 Luna (decisions)
   completion_type: [decision]
   roles: [scorer]
@@ -33,6 +35,29 @@ models:
   output_modalities: []
   pricing:  # developers.openai.com decisions guide: $0.10 / 1M input, $0.01 cached, output not charged
     response: {input_token_cost: 0.10, output_token_cost: 0}
+  is_active: true
+- provider: openai
+  model_name: gpt-6-luna
+  label: GPT-6 Luna
+  completion_type: [text]
+  roles: [parser, judge, generator, scorer]
+  tools: true
+  config:
+    effort:
+      type: enum
+      default: medium
+      options: [none, low, medium, high, xhigh, max]
+      description: How long the model spends reasoning. Higher = better but slower.
+    summary:
+      type: enum
+      default: auto
+      options: [auto, detailed, concise, 'null']
+      description: Summarize the reasoning result.
+  input_modalities: [TEXT, IMAGE, PDF]
+  output_modalities: [TEXT]
+  pricing:  # developers.openai.com/api/docs/pricing (standard): $0.10 / 1M input, $0.01 cached, $0.50 output
+    response: {input_token_cost: 0.1, output_token_cost: 0.5}
+    batch: {input_token_cost: 0.05, output_token_cost: 0.25}
   is_active: true
 - provider: google
   model_name: gemini-decision-1

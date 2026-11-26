@@ -79,7 +79,7 @@ Rerunning the same command resumes the run. A cheap smoke test is `--n 6 --round
   background processes and return at once; Claude Desktop times out on long calls.
 - **The scorer is the model production scores with**, and production is generative (the rubric as system prompt, a
   JSON answer; default `--model`), so the rubric is tuned on the same kind of call that will run it. A decision
-  model (`completion_type: decision` in `models.yaml`: `gpt-6-luna` decisions, `gemini-decision-1`) is an
+  model (`completion_type: decision` in `models.yaml`: `gpt-6-luna-decisions`, `gemini-decision-1`) is an
   alternative scorer for a programme that scores with one: the rubric is the evidence, one question per metric, the
   most likely level is the score; expected value, confidence and the distribution ride in the item's answer
   (`providers/decisions.py`). Measured 2026-11-25: the decision scorer agreed 13–17 points less than generative.
@@ -121,7 +121,8 @@ Rerunning the same command resumes the run. A cheap smoke test is `--n 6 --round
 
 ## When you change something
 
-- A model (add, remove, defaults, roles) → `models.yaml` only; the refiner and the UI both read it.
+- A model (add, remove, defaults, roles) → `models.yaml` only; the refiner and the UI both read it. One API id served
+  two ways (generative and decisions) is two entries: the second with `api_name` set to the id.
 - A schema in `agents/<agent>.py` → the matching prompt in `refiner/prompts/system/` (and `prompts/CLAUDE.md`).
 - The run folder or Excel sheets → the `engine/loop.py` docstring and `README.md`.
 - A file added, moved or renamed → the CLAUDE.md of its folder.

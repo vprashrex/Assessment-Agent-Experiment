@@ -1,4 +1,4 @@
-"""The decision APIs as the scorer: OpenAI `/v1/decisions` (gpt-6-luna) and Gemini decisions (gemini-decision-1).
+"""The decision APIs as the scorer: OpenAI `/v1/decisions` (gpt-6-luna-decisions) and Gemini decisions (gemini-decision-1).
 
 No prose comes back. Per metric the call asks one question about the submission: a `score` question whose ordered
 levels are the metric's own integer scale, or a `choice` question whose options are an enum's values. The answer
@@ -33,6 +33,11 @@ RETRY_STATUS = (429, 500, 502, 503, 504)
 def is_decision(model: str) -> bool:
     """A model served by a decision API (models.yaml: completion_type includes `decision`)."""
     return "decision" in (models.entry(model).get("completion_type") or [])
+
+
+def api_name(model: str) -> str:
+    """The id sent to the API: `api_name` in models.yaml when the catalog name differs from it."""
+    return models.entry(model).get("api_name") or model
 
 
 def levels(out: dict, provider: str) -> list[tuple[str, float]]:
@@ -125,7 +130,7 @@ def _openai(model: str, rubric: str, user: str, files: Files, outs: dict[str, di
         else:
             parts.append({"type": "input_image", "image_url": f"data:{mt};base64,{b64(data)}"})
     parts.append({"type": "input_text", "text": user})
-    r = base.client("openai").decisions.create(model=model, input=[{"type": "message", "role": "user", "content": parts}],
+    r = base.client("openai").decisions.create(model=api_name(model), input=[{"type": "message", "role": "user", "content": parts}],
                                                questions=_openai_questions(outs)).model_dump()
     if u := r.get("usage"):
         det = u.get("input_tokens_details") or {}
@@ -148,7 +153,7 @@ def _gemini(model: str, rubric: str, user: str, files: Files, outs: dict[str, di
     blocks: list[dict] = [{"type": "text", "text": rubric}]
     blocks += [{"type": "document" if mt == "application/pdf" else "image", "data": b64(data), "mime_type": mt} for mt, data in files]
     blocks.append({"type": "text", "text": user})
-    body = {"model": model, "input": blocks, "questions": _gemini_questions(outs)}
+    body = {"model": api_name(model), "input": blocks, "questions": _gemini_questions(outs)}
     key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     r = None
     for attempt in range(TRIES):

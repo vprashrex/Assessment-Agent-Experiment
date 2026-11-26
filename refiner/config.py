@@ -89,7 +89,7 @@ HELP: dict[str, str] = {
     "docs_dir": "folder of downloaded files for links that cannot be fetched (matched by name)",
     "model": "default model for every agent; the per-agent options override it",
     "effort": f"reasoning effort for every model: {' | '.join(EFFORTS)}",
-    "scorer": "scoring model, the one production uses: generative (default: --model) or a decision model (gpt-6-luna, gemini-decision-1)",
+    "scorer": "scoring model, the one production uses: generative (default: --model) or a decision model (gpt-6-luna-decisions, gemini-decision-1)",
     "scorer_effort": "effort for the scorer alone (default low: production scorers run lean; ignored by decision models)",
     "parser_model": "parser model (default: --model)",
     "judge_model": "judge model (default: --model)",
