@@ -21,7 +21,7 @@ prompts/
 | Agent / call | System prompt | User message | Fields | Sent from |
 |---|---|---|---|---|
 | Parser (`parse-sheet`) | `system/parser.md` | `USER["parser"]` | `context`, `rubric` (line-numbered), `schema`, `columns` | `agents/parser.py` |
-| Scorer (`score-item`) | **the rubric being refined** | `USER["scorer"]` | `submission` | `agents/scorer.py` |
+| Scorer (`score-item`) | **the rubric being refined** (sent first, as the evidence) | `USER["scorer"]` (`submission`); per metric one question: `USER["decision_instructions"]` (`field`), its levels `USER["decision_level"]` (`label`, `field`) or options `USER["decision_choice"]` (`value`, `field`) | | `agents/scorer.py`, `agents/providers/decisions.py` |
 | Judge, per item (`review-item`) | `system/judge.md` | `USER["judge_item"]` | `rubric`, `submission`, `output`, `reference`, `rationale` (the reviewers' comments, or `USER["judge_no_rationale"]`), `error` | `agents/judge.py` (`review`) |
 | Judge, round (`summarise-round`) | `system/judge.md` | `USER["judge_summary"]` | `version`, `rubric`, `versions`, `numbers` (measured by code), `checklist`, `change`, `notes` (missed first, then matched) | `agents/judge.py` (`summarise`; one call, no tools) |
 | Generator (`write-candidate`) | `system/generator.md` | `USER["generator"]` | `mode`, `rubric` (annotated), `overview`, `summary`, `checklist`, `table`, `dialogue` | `agents/generator.py` |

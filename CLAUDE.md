@@ -14,7 +14,7 @@ rubric-refiner/
 ├── README.md            how it works and how to use it
 ├── refiner/             the Python package; every folder has a CLAUDE.md saying what each file does
 │   ├── agents/          parser, scorer, judge, generator; layers; math_tool.py; llm.py + models.py;
-│   │                    providers/ (anthropic, openai, gemini behind one complete())
+│   │                    providers/ (anthropic, openai, gemini behind one complete(); decisions.py for the scorer)
 │   ├── engine/          items (sheet -> items), split (train/test), loop, fanout (+ composer, polish, test pass), run,
 │   │                    report, events
 │   ├── mcp/             server.py (12 actions), routes.py (uploads, SSE, health, run files), inspect.py
@@ -77,7 +77,13 @@ Rerunning the same command resumes the run. A cheap smoke test is `--n 6 --round
 - **Issue statuses are measured by code** (`update_checklist` in `engine/loop.py`), never declared by the judge.
 - **MCP uses the `fastmcp` package** (not the raw `mcp` SDK). Dependencies via uv. Long-running tools start
   background processes and return at once; Claude Desktop times out on long calls.
-- **Attachments go to models as files** (PDF and images), not only as extracted text.
+- **The scorer is a decision model** (`completion_type: decision` in `models.yaml`: `gpt-6-luna` decisions,
+  `gemini-decision-1`), because production scores with one and the rubric is tuned for the scorer that will run it.
+  `RunConfig` refuses any other scorer; no generative model carries the `scorer` role. The rubric is the evidence,
+  one question per metric, the most likely level is the score; expected value, confidence and the distribution ride
+  in the item's answer (`providers/decisions.py`). Judge, generator and parser stay generative.
+- **Attachments go to models as files** (PDF and images), not only as extracted text (OpenAI decisions: a PDF as
+  one image per page).
 - **Programme data stays in `z_assessment/`** (gitignored), never in tracked files: no sheets, contexts, prompts,
   results or programme names in the repo or its docs.
 - Submission files in `z_assessment/`, `runs/` and `cache/` are real people's writing. Do not paste their text into chats,

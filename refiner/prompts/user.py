@@ -42,7 +42,7 @@ USER = {
     'last_change_shared': '(shared stage)',
     'last_change': (
         '{cand} (edited from {best}) was {verdict}{reason}. Its metrics text has {words} words '
-        '({best} has {best_words}, the original {v0_words}). Use the tools to measure it against {best}.\n'
+        '({best} has {best_words}, the original {v0_words}). Its numbers against {best} are measured above.\n'
         'Items this edit pushed further from the reference, with the reason:\n{items}'
     ),
     'last_change_item': '  [{id}] {direction} — clause: {clause} — {comment}',
@@ -76,6 +76,14 @@ USER = {
         '\n'
         'Return the JSON object exactly as specified.'
     ),
+
+    # ---------- scorer, decision API: one question per metric; the rubric is the evidence sent first ----------
+    'decision_instructions': (
+        'Score the submission on "{field}" exactly as the rubric above defines that score: its criteria, caps, '
+        'gates and bands for this field, nothing else.'
+    ),
+    'decision_level': 'Score {label} for "{field}", as the rubric defines it.',
+    'decision_choice': '"{value}" for "{field}", as the rubric defines it.',
 
     # ---------- judge, per item: why one submission's score differs from the reference ----------
     'judge_item': (

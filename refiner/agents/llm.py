@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from . import models, providers, spend
 from .providers.base import Files, LLMError, Tools
 
-__all__ = ["Files", "LLMError", "Tools", "call", "HARD_CAP", "uncapped"]
+__all__ = ["Files", "LLMError", "Tools", "call", "check_cap", "HARD_CAP", "uncapped"]
 
 HARD_CAP: dict[str, float | None] = {"usd": None}  # set by engine/run: budget × HARD_FACTOR; no call starts above it
 _UNCAPPED: contextvars.ContextVar[bool] = contextvars.ContextVar("uncapped", default=False)
@@ -44,12 +44,17 @@ def call(model: str, system: str, user: str, schema: dict, *, effort: str = "hig
         return _call(model, system, user, schema, effort, tools, tool_log, files, tries)
 
 
+def check_cap() -> None:
+    """Refuses to start a model call once the run's spend has passed the hard cap (outside `uncapped()`)."""
+    if HARD_CAP["usd"] is not None and not _UNCAPPED.get() and spend.total() >= HARD_CAP["usd"]:
+        raise spend.BudgetExceeded(f"spent ${spend.total():.2f}, hard cap ${HARD_CAP['usd']:.2f}: no new model call "
+                                   f"(rerun with a higher --budget to resume)")
+
+
 def _call(model, system, user, schema, effort, tools, tool_log, files, tries) -> dict:
     last: Exception | None = None
     for i in range(tries):
-        if HARD_CAP["usd"] is not None and not _UNCAPPED.get() and spend.total() >= HARD_CAP["usd"]:
-            raise spend.BudgetExceeded(f"spent ${spend.total():.2f}, hard cap ${HARD_CAP['usd']:.2f}: no new model call "
-                                       f"(rerun with a higher --budget to resume)")
+        check_cap()
         log: list = []
         try:
             text = providers.get(model)(model, system, user, schema, models.reasoning(model, effort), tools, log, files or [])

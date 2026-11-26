@@ -13,6 +13,21 @@ IMAGE_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", 
 MIME = {".pdf": "application/pdf", **IMAGE_MIME}
 
 
+def pdf_pages(data: bytes, scale: float = 1.5) -> list[bytes]:
+    """A PDF's pages rendered as PNG images (for APIs that take images only)."""
+    import io
+
+    import pypdfium2 as pdfium
+
+    pdf = pdfium.PdfDocument(data)
+    out = []
+    for page in pdf:
+        buf = io.BytesIO()
+        page.render(scale=scale).to_pil().convert("RGB").save(buf, format="PNG")
+        out.append(buf.getvalue())
+    return out
+
+
 def read(path: Path, default: Any = None) -> Any:
     """A .json file parsed, any other file as text; `default` if it does not exist."""
     if not path.exists():

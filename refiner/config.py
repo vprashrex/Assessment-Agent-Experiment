@@ -11,6 +11,12 @@ from .engine.split import shares
 
 EFFORTS = ("low", "medium", "high")  # the refiner's one reasoning knob; models.py maps it to each model's setting
 DEFAULT_MODEL: str = (catalog().get("defaults") or {}).get("judge") or "claude-sonnet-5-5"
+DEFAULT_SCORER: str = (catalog().get("defaults") or {}).get("scorer") or "gemini-decision-1"
+
+
+def decision_scorers() -> list[str]:
+    """The models the scorer may use: the decision models of models.yaml (completion_type `decision`)."""
+    return [m["model_name"] for m in catalog().get("models") or [] if "decision" in (m.get("completion_type") or [])]
 
 
 @dataclass
@@ -40,8 +46,10 @@ class RunConfig:
     workers: int = 24
 
     def __post_init__(self) -> None:
-        self.scorer = self.scorer or self.model
-        self.scorer_effort = self.scorer_effort or "low"  # production scorers run lean; tuning matches
+        self.scorer = self.scorer or DEFAULT_SCORER
+        if self.scorer not in decision_scorers():  # the scorer is a decision API, as production scores
+            raise ValueError(f"scorer must be a decision model ({', '.join(decision_scorers())}), not {self.scorer}")
+        self.scorer_effort = self.scorer_effort or "low"  # a decision model has no reasoning setting; kept for the lock
         self.parser_model = self.parser_model or self.model
         self.judge_model = self.judge_model or self.model
         self.generator_model = self.generator_model or self.model
@@ -84,8 +92,8 @@ HELP: dict[str, str] = {
     "docs_dir": "folder of downloaded files for links that cannot be fetched (matched by name)",
     "model": "default model for every agent; the per-agent options override it",
     "effort": f"reasoning effort for every model: {' | '.join(EFFORTS)}",
-    "scorer": "scoring model (default: --model)",
-    "scorer_effort": "effort for the scorer alone (default low: production scorers run lean)",
+    "scorer": "scoring model: a decision model from models.yaml, the one production uses (default: its `scorer` default)",
+    "scorer_effort": "unused by decision models; kept in the model lock",
     "parser_model": "parser model (default: --model)",
     "judge_model": "judge model (default: --model)",
     "generator_model": "generator model (default: --model)",

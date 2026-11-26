@@ -34,6 +34,7 @@ from .. import agents, prompts
 from ..agents import llm, spend
 from ..agents import math_tool as M
 from ..agents import reference
+from ..agents.providers import decisions
 from ..utils import excel
 from ..utils.excel import read_sheet
 from ..utils.files import read as read_file
@@ -124,6 +125,8 @@ def _setup(run: Run, a, df, v0: str) -> tuple[dict, list[dict]]:
         run.write("setup/items.json", items[: a.n] if a.n else items)
         for p in problems:
             debug(run, f"setup: {p}")
+        for p in decisions.check(a.scorer, {m["key"]: m["output"] for m in agents.metrics_of(setup)}, run.read("setup/items.json")):
+            debug(run, f"setup: scorer: {p}")
     # the train/test split, drawn once; a resume keeps it even when --split or --seed differ
     sp = run.read(split.FILE)
     if sp is None:

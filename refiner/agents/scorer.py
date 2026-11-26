@@ -8,8 +8,9 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from .. import prompts
-from . import llm
+from . import llm, spend
 from .layers import files_of, label
+from .providers import decisions
 
 
 def output_schema(out: dict) -> dict:
@@ -46,8 +47,13 @@ def score_all(rubric: str, items: list[dict], outs: dict[str, dict], model: str,
 
     def one(it: dict) -> tuple[str, dict]:
         try:
-            answer = llm.call(model, rubric, prompts.render("scorer", submission=it["input"]), schema, effort=effort,
-                              files=files_of(it), role="scorer")
+            if decisions.is_decision(model):  # a decision API: one question per metric, probabilities back, no prose
+                with spend.role("scorer"):
+                    llm.check_cap()
+                    answer = decisions.ask(model, rubric, prompts.render("scorer", submission=it["input"]), files_of(it), outs)
+            else:
+                answer = llm.call(model, rubric, prompts.render("scorer", submission=it["input"]), schema, effort=effort,
+                                  files=files_of(it), role="scorer")
         except llm.LLMError:
             answer = {}
         return it["id"], answer
