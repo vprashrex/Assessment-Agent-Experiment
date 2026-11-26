@@ -19,6 +19,9 @@ Rules:
   outright. Once the loop stops, the shrink loop (`loop.simplify`, MODE: SIMPLIFY, versions `vS`, `vS2`, …)
   compresses the best version pass after pass while the exact matches hold, and `math_tool.diagnose` writes a
   plain-language note (dataset / rubric-context / scorer) with one action, emitted as `metric.diagnosis`.
+- `--pause-after N`: `loop.refine` returns after round N with `state.json["paused"]` set and a `metric.paused` event,
+  before the shrink loop and the test scoring; `fanout.main` and `run.main` then skip the composer, polish, test pass
+  and report. A rerun with a higher N (or none) continues from the same state. For stepping through a run by hand.
 - `--budget`: every loop and stage checks `spend.total()` at its round boundary and stops with "budget reached"
   (the shrink loop is skipped then). The hard cap (1.25 × budget, `llm.HARD_CAP`) guards the loops only: the
   end-of-run work (test pass, compose, polish, report) runs inside `llm.uncapped()` to completion, polish stopping

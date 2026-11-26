@@ -134,6 +134,7 @@ All options (`uv run refiner --help` prints the same list; the defaults live in 
 | `--split` | `80/20` | train/test share; the rubric is tuned on train only, test is scored once at the end (`100/0` = no holdout) |
 | `--seed` | `0` | which submissions go to train and test |
 | `--budget` | none | USD: stop at the next round boundary once this much is spent (best version kept); no model call starts above 1.25 × budget |
+| `--pause-after` | none | stop every metric after this round without the end work (no shrink loop, composer, polish or test pass), to look at the round; rerun with a higher value, or without it, to continue |
 | `--workers` | `24` | parallel model calls |
 | `--prepare` | off | set up only and print the setup |
 

@@ -29,7 +29,8 @@ def main(a) -> dict:
           else (agents.EDITABLE,))
     best = {agents.metrics_of(setup)[0]["key"]: refine(run, a, setup, items, editable=ed)}
     finish(run)
-    report.write(run, a)
+    if not (run.read("state.json") or {}).get("paused"):  # --pause-after: no report until the loop has really stopped
+        report.write(run, a)
     return best
 
 

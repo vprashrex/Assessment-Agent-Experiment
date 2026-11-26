@@ -344,6 +344,14 @@ def refine(run: Run, a, setup: dict, items: list[dict], editable: tuple[str, ...
             ev("version.verdict", version="v0", parent=None, verdict="baseline", numbers=N("v0"), best_before=None,
                closer=0, further=0)
             st["baseline_sent"] = True
+        if a.pause_after is not None and rnd0 >= a.pause_after:  # stepping by hand, before the judge's summary: no end work; a rerun continues here
+            st["paused"] = rnd0
+            run.write("state.json", st)
+            ev("metric.paused", best=best, round=rnd0, numbers=N(best), spent=spend.total())
+            debug(run, f"=== PAUSED after round {rnd0} · best {best} · {numbers(metrics(best), out)} (--pause-after {a.pause_after})")
+            print(f"{run.label} paused after round {rnd0} · best {best}", flush=True)
+            return best
+        st.pop("paused", None)
         rv = reviewed(best)
         errs = E(best)
         if not (run.dir / V(best, "result.xlsx")).exists():

@@ -42,6 +42,7 @@ class RunConfig:
     split: str = "80/20"
     seed: int = 0
     budget: float | None = None
+    pause_after: int | None = None
     workers: int = 24
 
     def __post_init__(self) -> None:
@@ -60,6 +61,8 @@ class RunConfig:
         shares(self.split)  # raises on a bad spec
         if self.budget is not None and self.budget <= 0:
             raise ValueError("budget must be a positive amount in USD")
+        if self.pause_after is not None and self.pause_after < 1:
+            raise ValueError("pause_after must be a round number, 1 or more")
 
     def run_models(self) -> dict[str, str]:
         """The models and effort a refinement runs with; locked once it starts (see api.lock_models)."""
@@ -103,5 +106,7 @@ HELP: dict[str, str] = {
     "seed": "which items go to train and test; fixed when the run is prepared",
     "budget": "USD: stop at the next round boundary once this much is spent (best version kept); no model call "
               "starts above 1.25 × budget. Prices come from models.yaml; an unpriced model counts as $0",
+    "pause_after": "stop every metric after this round without the end work (no shrink loop, composer, polish or test "
+                   "pass), to look at the round; rerun with a higher value, or without it, to continue",
     "workers": "parallel model calls (network-bound; a laptop handles the default)",
 }
